@@ -1,0 +1,155 @@
+@page "/cars/{CarId:int}/logs/{LogId:int}/edit"
+@layout MainLayout
+@attribute [Authorize]
+@inject IUnitOfWork Uow
+@inject AuthenticationStateProvider AuthState
+@inject NavigationManager Nav
+@inject FuelCalculatorService Calc
+@inject UnitConversionService Units
+
+<PageTitle>Edit Fill-up — GasTracker</PageTitle>
+
+<div class="d-flex align-items-center mb-3">
+    <a href="/cars/@CarId" class="btn btn-sm btn-outline-secondary me-2"><i class="fa fa-arrow-left"></i></a>
+    <h2 class="h4 mb-0">Edit Fill-up</h2>
+</div>
+
+@if (_loading)
+{
+    <LoadingSpinner />
+}
+else if (_log is null)
+{
+    <div class="alert alert-warning">Fill-up not found.</div>
+}
+else
+{
+    <EditForm Model="_model" OnValidSubmit="SubmitAsync">
+        <DataAnnotationsValidator />
+        <ValidationSummary />
+
+        <div class="mb-3">
+            <label class="form-label fw-bold">Odometer reading (@_distUnit)</label>
+            <InputNumber class="form-control" @bind-Value="_model.OdometerDisplay" />
+            <ValidationMessage For="() => _model.OdometerDisplay" />
+        </div>
+
+        <div class="mb-3">
+            <label class="form-label fw-bold">@_volUnit filled</label>
+            <InputNumber class="form-control" @bind-Value="_model.VolumeDisplay" />
+            <ValidationMessage For="() => _model.VolumeDisplay" />
+        </div>
+
+        <div class="mb-3">
+            <label class="form-label fw-bold">Total cost (@_currencyCode)</label>
+            <InputNumber class="form-control" @bind-Value="_model.TotalCost" />
+            <ValidationMessage For="() => _model.TotalCost" />
+        </div>
+
+        <div class="mb-3">
+            <label class="form-label fw-bold">Date &amp; time</label>
+            <InputDate Type="InputDateType.DateTimeLocal" class="form-control" @bind-Value="_model.FilledAt" />
+        </div>
+
+        <div class="mb-3">
+            <label class="form-label fw-bold">Notes</label>
+            <InputTextArea class="form-control" @bind-Value="_model.Notes" rows="2" />
+        </div>
+
+        @if (_validationError is not null)
+        {
+            <div class="alert alert-danger">@_validationError</div>
+        }
+
+        <button type="submit" class="btn btn-primary w-100 mb-2" disabled="@_saving">
+            @(_saving ? "Saving…" : "Save changes")
+        </button>
+    </EditForm>
+}
+
+@code {
+    [Parameter] public int CarId { get; set; }
+    [Parameter] public int LogId { get; set; }
+
+    private FuelLog? _log;
+    private Car? _car;
+    private bool _loading = true;
+    private bool _saving;
+    private string _unit = "km";
+    private string _distUnit = "km";
+    private string _volUnit = "Liters";
+    private string _currencyCode = "SEK";
+    private string _currencySymbol = "kr";
+    private string? _validationError;
+    private int _userId;
+    private FuelLogFormModel _model = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        var auth = await AuthState.GetAuthenticationStateAsync();
+        _userId = int.Parse(auth.User.FindFirst("app_user_id")?.Value ?? "0");
+        var user = await Uow.Users.GetByIdAsync(_userId);
+        _unit = user?.PreferredUnit ?? "km";
+        _distUnit = _unit == "miles" ? "mi" : "km";
+        _volUnit = _unit == "miles" ? "Gallons" : "Liters";
+        _currencyCode = user?.CurrencyCode ?? "SEK";
+        _currencySymbol = user?.CurrencySymbol ?? "kr";
+
+        _car = await Uow.Cars.GetWithFuelLogsAsync(CarId, _userId);
+        _log = _car?.FuelLogs.FirstOrDefault(f => f.Id == LogId);
+
+        if (_log is not null)
+        {
+            _model = new FuelLogFormModel
+            {
+                OdometerDisplay = Math.Round(Units.ConvertDistance(_log.OdometerReading, _unit), 1),
+                VolumeDisplay = Math.Round(Units.ConvertVolume(_log.LitersFilled, _unit), 3),
+                TotalCost = _log.TotalCost,
+                FilledAt = _log.FilledAt.ToLocalTime(),
+                Notes = _log.Notes
+            };
+        }
+        _loading = false;
+    }
+
+    private async Task SubmitAsync()
+    {
+        _validationError = null;
+        if (_log is null || _car is null) return;
+
+        var odoKm = Units.ConvertDistanceToKm(_model.OdometerDisplay, _unit);
+        var liters = Units.ConvertVolumeToLiters(_model.VolumeDisplay, _unit);
+
+        if (_model.FilledAt > DateTime.Now)
+        {
+            _validationError = "Fill-up date cannot be in the future.";
+            return;
+        }
+
+        _saving = true;
+        _log.OdometerReading = odoKm;
+        _log.LitersFilled = liters;
+        _log.TotalCost = _model.TotalCost;
+        _log.FilledAt = _model.FilledAt.ToUniversalTime();
+        _log.Notes = string.IsNullOrWhiteSpace(_model.Notes) ? null : _model.Notes;
+
+        await Uow.FuelLogs.UpdateAsync(_log);
+        await Uow.SaveChangesAsync();
+        Nav.NavigateTo($"/cars/{CarId}");
+    }
+
+    private class FuelLogFormModel
+    {
+        [System.ComponentModel.DataAnnotations.Range(0.001, double.MaxValue, ErrorMessage = "Must be greater than 0")]
+        public decimal OdometerDisplay { get; set; }
+
+        [System.ComponentModel.DataAnnotations.Range(0.001, double.MaxValue, ErrorMessage = "Must be greater than 0")]
+        public decimal VolumeDisplay { get; set; }
+
+        [System.ComponentModel.DataAnnotations.Range(0, double.MaxValue, ErrorMessage = "Cannot be negative")]
+        public decimal TotalCost { get; set; }
+
+        public DateTime FilledAt { get; set; } = DateTime.Now;
+        public string? Notes { get; set; }
+    }
+}

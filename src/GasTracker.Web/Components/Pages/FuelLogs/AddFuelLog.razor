@@ -1,0 +1,198 @@
+@page "/cars/{CarId:int}/logs/add"
+@layout MainLayout
+@attribute [Authorize]
+@inject IUnitOfWork Uow
+@inject AuthenticationStateProvider AuthState
+@inject NavigationManager Nav
+@inject FuelCalculatorService Calc
+@inject UnitConversionService Units
+@inject DisplayFormatter Fmt
+
+<PageTitle>Add Fill-up — GasTracker</PageTitle>
+
+<div class="d-flex align-items-center mb-3">
+    <a href="/cars/@CarId" class="btn btn-sm btn-outline-secondary me-2"><i class="fa fa-arrow-left"></i></a>
+    <h2 class="h4 mb-0">Add Fill-up</h2>
+</div>
+
+@if (_loading)
+{
+    <LoadingSpinner />
+}
+else if (_car is null)
+{
+    <div class="alert alert-warning">Car not found.</div>
+}
+else
+{
+    <EditForm Model="_model" OnValidSubmit="SubmitAsync">
+        <DataAnnotationsValidator />
+        <ValidationSummary />
+
+        <div class="mb-3">
+            <label class="form-label fw-bold">Odometer reading (@_distUnit) <span class="text-danger">*</span></label>
+            <InputNumber class="form-control" @bind-Value="_model.OdometerDisplay" @oninput="UpdatePreview" />
+            <ValidationMessage For="() => _model.OdometerDisplay" />
+            @if (_prevLog is not null)
+            {
+                <div class="form-text">Last reading: @Fmt.Num(Units.ConvertDistance(_prevLog.OdometerReading, _unit), 0) @_distUnit</div>
+            }
+        </div>
+
+        <div class="mb-3">
+            <label class="form-label fw-bold">@_volUnit filled <span class="text-danger">*</span></label>
+            <InputNumber class="form-control" @bind-Value="_model.VolumeDisplay" @oninput="UpdatePreview" />
+            <ValidationMessage For="() => _model.VolumeDisplay" />
+        </div>
+
+        <div class="mb-3">
+            <label class="form-label fw-bold">Total cost (@_currencyCode) <span class="text-danger">*</span></label>
+            <InputNumber class="form-control" @bind-Value="_model.TotalCost" @oninput="UpdatePreview" />
+            <ValidationMessage For="() => _model.TotalCost" />
+        </div>
+
+        <div class="mb-3">
+            <label class="form-label fw-bold">Date &amp; time</label>
+            <InputDate Type="InputDateType.DateTimeLocal" class="form-control" @bind-Value="_model.FilledAt" />
+        </div>
+
+        <div class="mb-3">
+            <label class="form-label fw-bold">Notes</label>
+            <InputTextArea class="form-control" @bind-Value="_model.Notes" rows="2" />
+        </div>
+
+        @if (_preview is not null)
+        {
+            <div class="stat-badge mb-3">
+                <div class="stat-value">@_preview</div>
+                <div class="stat-label">efficiency preview</div>
+            </div>
+        }
+
+        @if (_validationError is not null)
+        {
+            <div class="alert alert-danger">@_validationError</div>
+        }
+
+        <button type="submit" class="btn btn-primary w-100" disabled="@_saving">
+            @(_saving ? "Saving…" : "Save fill-up")
+        </button>
+    </EditForm>
+}
+
+@code {
+    [Parameter] public int CarId { get; set; }
+
+    private Car? _car;
+    private FuelLog? _prevLog;
+    private FuelLogFormModel _model = new() { FilledAt = DateTime.Now };
+    private bool _loading = true;
+    private bool _saving;
+    private string _unit = "km";
+    private string _distUnit = "km";
+    private string _volUnit = "Liters";
+    private string _currencyCode = "SEK";
+    private string _currencySymbol = "kr";
+    private int _statScale = 10;
+    private string _costDistUnit = "10km";
+    private string? _preview;
+    private string? _validationError;
+    private int _userId;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var auth = await AuthState.GetAuthenticationStateAsync();
+        _userId = int.Parse(auth.User.FindFirst("app_user_id")?.Value ?? "0");
+        var user = await Uow.Users.GetByIdAsync(_userId);
+        _unit = user?.PreferredUnit ?? "km";
+        _distUnit = _unit == "miles" ? "mi" : "km";
+        _volUnit = _unit == "miles" ? "Gallons" : "Liters";
+        _currencyCode = user?.CurrencyCode ?? "SEK";
+        _currencySymbol = user?.CurrencySymbol ?? "kr";
+        _statScale = user?.StatScale ?? 10;
+        _costDistUnit = Units.BuildCostDistUnit(_unit, _statScale);
+
+        _car = await Uow.Cars.GetWithFuelLogsAsync(CarId, _userId);
+        if (_car is not null)
+            _prevLog = _car.FuelLogs.OrderByDescending(f => f.FilledAt).FirstOrDefault();
+
+        _loading = false;
+    }
+
+    private void UpdatePreview(ChangeEventArgs _) => RecalculatePreview();
+
+    private void RecalculatePreview()
+    {
+        if (_model.OdometerDisplay <= 0 || _model.VolumeDisplay <= 0) { _preview = null; return; }
+
+        var odoKm = Units.ConvertDistanceToKm(_model.OdometerDisplay, _unit);
+        var liters = Units.ConvertVolumeToLiters(_model.VolumeDisplay, _unit);
+
+        if (_prevLog is not null)
+        {
+            var distKm = odoKm - _prevLog.OdometerReading;
+            if (distKm > 0)
+            {
+                var effLabel = Units.EfficiencyLabel(_costDistUnit);
+                var eff = Units.LitersPerDistUnit(liters, distKm, _costDistUnit)
+                    ?? Calc.MilesPerGallon(Units.KmToMiles(distKm), Units.LitersToGallons(liters));
+                _preview = eff.HasValue ? $"{Fmt.Num(eff.Value, 2)} {effLabel}" : null;
+            }
+        }
+    }
+
+    private async Task SubmitAsync()
+    {
+        _validationError = null;
+        if (_car is null) return;
+
+        var odoKm = Units.ConvertDistanceToKm(_model.OdometerDisplay, _unit);
+        var liters = Units.ConvertVolumeToLiters(_model.VolumeDisplay, _unit);
+
+        // Validation
+        if (odoKm <= _car.StartingOdometer)
+        {
+            _validationError = $"Odometer must be greater than car's starting odometer ({Fmt.Num(Units.ConvertDistance(_car.StartingOdometer, _unit), 0)} {_distUnit}).";
+            return;
+        }
+        if (_prevLog is not null && odoKm <= _prevLog.OdometerReading)
+        {
+            _validationError = $"Odometer must be greater than the previous reading ({Fmt.Num(Units.ConvertDistance(_prevLog.OdometerReading, _unit), 0)} {_distUnit}).";
+            return;
+        }
+        if (_model.FilledAt > DateTime.Now)
+        {
+            _validationError = "Fill-up date cannot be in the future.";
+            return;
+        }
+
+        _saving = true;
+        var log = new FuelLog
+        {
+            CarId = CarId,
+            OdometerReading = odoKm,
+            LitersFilled = liters,
+            TotalCost = _model.TotalCost,
+            FilledAt = _model.FilledAt.ToUniversalTime(),
+            Notes = string.IsNullOrWhiteSpace(_model.Notes) ? null : _model.Notes
+        };
+        await Uow.FuelLogs.AddAsync(log);
+        await Uow.SaveChangesAsync();
+        Nav.NavigateTo($"/cars/{CarId}");
+    }
+
+    private class FuelLogFormModel
+    {
+        [System.ComponentModel.DataAnnotations.Range(0.001, double.MaxValue, ErrorMessage = "Must be greater than 0")]
+        public decimal OdometerDisplay { get; set; }
+
+        [System.ComponentModel.DataAnnotations.Range(0.001, double.MaxValue, ErrorMessage = "Must be greater than 0")]
+        public decimal VolumeDisplay { get; set; }
+
+        [System.ComponentModel.DataAnnotations.Range(0, double.MaxValue, ErrorMessage = "Cannot be negative")]
+        public decimal TotalCost { get; set; }
+
+        public DateTime FilledAt { get; set; } = DateTime.Now;
+        public string? Notes { get; set; }
+    }
+}

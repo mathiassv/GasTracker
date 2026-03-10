@@ -1,0 +1,33 @@
+# Build outputs
+**/bin/
+**/obj/
+
+# User-specific files
+*.user
+*.suo
+.vs/
+.vscode/
+
+.claude/
+
+# Secrets
+.env
+**/appsettings.Development.json
+**/secrets.json
+
+# SQLite database
+*.db
+*.db-shm
+*.db-wal
+data/
+
+# NuGet
+*.nupkg
+**/packages/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log

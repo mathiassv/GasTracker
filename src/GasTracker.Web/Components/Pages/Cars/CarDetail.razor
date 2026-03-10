@@ -1,0 +1,224 @@
+@page "/cars/{CarId:int}"
+@layout MainLayout
+@attribute [Authorize]
+@inject IUnitOfWork Uow
+@inject AuthenticationStateProvider AuthState
+@inject NavigationManager Nav
+@inject FuelCalculatorService Calc
+@inject UnitConversionService Units
+@inject DisplayFormatter Fmt
+@inject IWebHostEnvironment Env
+
+<PageTitle>@(_car?.Name ?? "Car") — GasTracker</PageTitle>
+
+<div class="d-flex align-items-center mb-3">
+    <a href="/cars" class="btn btn-sm btn-outline-secondary me-2"><i class="fa fa-arrow-left"></i></a>
+    <h2 class="h4 mb-0 me-auto">@(_car?.Name ?? "Loading…")</h2>
+    @if (_car is not null)
+    {
+        <a href="/cars/@CarId/edit" class="btn btn-sm btn-outline-primary me-2">
+            <i class="fa fa-pen"></i>
+        </a>
+        <button class="btn btn-sm btn-outline-danger" @onclick="DeleteCarAsync">
+            <i class="fa fa-trash"></i>
+        </button>
+    }
+</div>
+
+@if (_loading)
+{
+    <LoadingSpinner />
+}
+else if (_car is null)
+{
+    <div class="alert alert-warning">Car not found.</div>
+}
+else
+{
+    @if (!string.IsNullOrEmpty(_car.LicensePlate))
+    {
+        <div class="text-muted small mb-3"><i class="fa fa-id-card me-1"></i>@_car.LicensePlate</div>
+    }
+
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <h5 class="mb-0">Fill-up History</h5>
+        <div class="d-flex gap-2">
+            @if (Env.IsDevelopment())
+            {
+                <button class="btn btn-outline-secondary btn-sm" @onclick="GenerateDemoDataAsync" disabled="@_generatingDemo" title="Add demo fill-ups">
+                    <i class="fa fa-wand-magic-sparkles me-1"></i>@(_generatingDemo ? "Generating…" : "Demo data")
+                </button>
+            }
+            <a href="/cars/@CarId/logs/add" class="btn btn-primary btn-sm">
+                <i class="fa fa-plus me-1"></i>Add fill-up
+            </a>
+        </div>
+    </div>
+
+    @if (!_logs.Any())
+    {
+        <div class="text-center text-muted py-3">
+            <p>No fill-ups yet.</p>
+            <a href="/cars/@CarId/logs/add" class="btn btn-primary">Add first fill-up</a>
+        </div>
+    }
+    else
+    {
+        @foreach (var (log, prev) in _logsWithPrev)
+        {
+            var distKm = Calc.DistanceSincePrevious(log, prev);
+            var displayDist = distKm.HasValue ? Units.ConvertDistance(distKm.Value, _unit) : (decimal?)null;
+            var litersDisplay = Units.ConvertVolume(log.LitersFilled, _unit);
+            var volUnit = _unit == "miles" ? "gal" : "L";
+            var distUnit = _unit == "miles" ? "mi" : "km";
+            var effValue = distKm.HasValue ? Units.LitersPerDistUnit(log.LitersFilled, distKm.Value, _costDistUnit) : null;
+            var effMpg = (distKm.HasValue && !Units.IsMetricCostUnit(_costDistUnit))
+                ? Calc.MilesPerGallon(Units.KmToMiles(distKm.Value), Units.LitersToGallons(log.LitersFilled))
+                : null;
+            var effLabel = Units.EfficiencyLabel(_costDistUnit);
+
+            <div class="log-row">
+                <div class="d-flex justify-content-between align-items-center">
+                    <span class="fw-bold">@log.FilledAt.ToLocalTime().ToString("MMM d, yyyy")</span>
+                    <div class="d-flex gap-1">
+                        <a href="/cars/@CarId/logs/@log.Id/edit" class="btn btn-sm btn-outline-secondary" title="Edit">
+                            <i class="fa fa-pen"></i>
+                        </a>
+                        <button class="btn btn-sm btn-outline-danger" title="Delete" @onclick="() => DeleteLogAsync(log.Id)">
+                            <i class="fa fa-trash"></i>
+                        </button>
+                    </div>
+                </div>
+                <div class="d-flex justify-content-between small text-muted mt-1">
+                    <span>@Fmt.Num(litersDisplay, 2) @volUnit &bull; @Fmt.Currency(log.TotalCost, _currencySymbol)</span>
+                    @if (displayDist.HasValue)
+                    {
+                        <span>@Fmt.Num(displayDist.Value, 0) @distUnit</span>
+                    }
+                </div>
+                @if (effValue.HasValue)
+                {
+                    <div class="small text-primary">@Fmt.Num(effValue.Value, 2) @effLabel</div>
+                }
+                else if (effMpg.HasValue)
+                {
+                    <div class="small text-primary">@Fmt.Num(effMpg.Value, 1) @effLabel</div>
+                }
+            </div>
+        }
+    }
+}
+
+<ConfirmDialog @ref="_confirmDialog" Title="Delete car" Message="This will delete the car and all its fill-up history. Are you sure?" />
+
+@code {
+    [Parameter] public int CarId { get; set; }
+
+    private Car? _car;
+    private List<FuelLog> _logs = [];
+    private List<(FuelLog Log, FuelLog? Prev)> _logsWithPrev = [];
+    private bool _loading = true;
+    private bool _generatingDemo;
+    private int _userId;
+    private string _unit = "km";
+    private int _statScale = 10;
+    private string _costDistUnit = "10km";
+    private string _currencySymbol = "kr";
+    private ConfirmDialog _confirmDialog = null!;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var auth = await AuthState.GetAuthenticationStateAsync();
+        _userId = int.Parse(auth.User.FindFirst("app_user_id")?.Value ?? "0");
+        var user = await Uow.Users.GetByIdAsync(_userId);
+        _unit = user?.PreferredUnit ?? "km";
+        _statScale = user?.StatScale ?? 10;
+        _costDistUnit = Units.BuildCostDistUnit(_unit, _statScale);
+        _currencySymbol = user?.CurrencySymbol ?? "kr";
+
+        _car = await Uow.Cars.GetWithFuelLogsAsync(CarId, _userId);
+        if (_car is not null)
+        {
+            _logs = _car.FuelLogs.OrderBy(f => f.FilledAt).ToList();
+            _logsWithPrev = _logs.Select((log, i) => (log, i > 0 ? _logs[i - 1] : (FuelLog?)null)).Reverse().ToList();
+        }
+        _loading = false;
+    }
+
+    private async Task GenerateDemoDataAsync()
+    {
+        if (_car is null) return;
+        _generatingDemo = true;
+
+        var rng = new Random();
+        const int count = 25;
+
+        // Start after the last existing log, or from the car's starting odometer
+        var lastOdo = _logs.Any() ? _logs.Last().OdometerReading : _car.StartingOdometer;
+        var lastDate = _logs.Any() ? _logs.Last().FilledAt : DateTime.UtcNow.AddDays(-(count * 12));
+
+        // Simulate a slowly-drifting fuel price in SEK (15–19 kr/L)
+        decimal pricePerLiter = (decimal)(15.0 + rng.NextDouble() * 4.0);
+
+        for (int i = 0; i < count; i++)
+        {
+            // 9–16 days between fill-ups
+            lastDate = lastDate.AddDays(9 + rng.Next(8));
+
+            // 280–560 km per segment, slight trend to look natural
+            var distKm = (decimal)(280 + rng.Next(280));
+            lastOdo += distKm;
+
+            // 7.5–11.5 L/100km consumption
+            var consumptionPer100 = (decimal)(7.5 + rng.NextDouble() * 4.0);
+            var liters = Math.Round(distKm * consumptionPer100 / 100m, 2);
+
+            // Price drifts ±0.05 each fill
+            pricePerLiter += (decimal)((rng.NextDouble() - 0.5) * 0.10);
+            pricePerLiter = Math.Max(15.0m, Math.Min(19.0m, pricePerLiter));
+            var cost = Math.Round(liters * pricePerLiter, 2);
+
+            await Uow.FuelLogs.AddAsync(new FuelLog
+            {
+                CarId = CarId,
+                OdometerReading = Math.Round(lastOdo, 1),
+                LitersFilled = liters,
+                TotalCost = cost,
+                FilledAt = lastDate < DateTime.UtcNow ? lastDate : DateTime.UtcNow.AddMinutes(-1),
+                Notes = i == 0 ? "Demo data" : null
+            });
+        }
+
+        await Uow.SaveChangesAsync();
+
+        // Reload
+        _car = await Uow.Cars.GetWithFuelLogsAsync(CarId, _userId);
+        if (_car is not null)
+        {
+            _logs = _car.FuelLogs.OrderBy(f => f.FilledAt).ToList();
+            _logsWithPrev = _logs.Select((log, i) => (log, i > 0 ? _logs[i - 1] : (FuelLog?)null)).Reverse().ToList();
+        }
+
+        _generatingDemo = false;
+    }
+
+    private async Task DeleteCarAsync()
+    {
+        if (!await _confirmDialog.ShowAsync()) return;
+        await Uow.Cars.DeleteAsync(CarId);
+        await Uow.SaveChangesAsync();
+        Nav.NavigateTo("/cars");
+    }
+
+    private async Task DeleteLogAsync(int logId)
+    {
+        await Uow.FuelLogs.DeleteAsync(logId);
+        await Uow.SaveChangesAsync();
+        _car = await Uow.Cars.GetWithFuelLogsAsync(CarId, _userId);
+        if (_car is not null)
+        {
+            _logs = _car.FuelLogs.OrderBy(f => f.FilledAt).ToList();
+            _logsWithPrev = _logs.Select((log, i) => (log, i > 0 ? _logs[i - 1] : (FuelLog?)null)).Reverse().ToList();
+        }
+    }
+}

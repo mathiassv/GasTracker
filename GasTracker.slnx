@@ -1,0 +1,10 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/GasTracker.Data/GasTracker.Data.csproj" />
+    <Project Path="src/GasTracker.Web/GasTracker.Web.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/GasTracker.Data.Tests/GasTracker.Data.Tests.csproj" />
+    <Project Path="tests/GasTracker.Services.Tests/GasTracker.Services.Tests.csproj" />
+  </Folder>
+</Solution>

@@ -1,0 +1,70 @@
+@using Blazorise.Charts
+@inject FuelCalculatorService Calc
+@inject UnitConversionService Units
+
+<BarChart TItem="decimal" @ref="_chart" />
+
+@code {
+    [Parameter] public List<FuelLog> Logs { get; set; } = [];
+    [Parameter] public string CostDistUnit { get; set; } = "10km";
+    [Parameter] public string CurrencySymbol { get; set; } = "kr";
+
+    private BarChart<decimal> _chart = null!;
+    private bool _rendered;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            _rendered = true;
+            await RenderChartAsync();
+        }
+    }
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (_rendered)
+            await RenderChartAsync();
+    }
+
+    private async Task RenderChartAsync()
+    {
+        await _chart.Clear();
+
+        var points = BuildDataPoints();
+        if (!points.Any()) return;
+
+        var label = $"{CurrencySymbol}/{Units.CostDistLabel(CostDistUnit)}";
+        var labels = points.Select(p => p.Label).ToList();
+        var values = points.Select(p => p.Value).ToList();
+
+        await _chart.AddLabelsDatasetsAndUpdate(labels,
+            new BarChartDataset<decimal>
+            {
+                Label = label,
+                Data = values,
+                BackgroundColor = "rgba(40,167,69,0.7)",
+                BorderColor = "rgba(40,167,69,1)"
+            });
+    }
+
+    private List<(string Label, decimal Value)> BuildDataPoints()
+    {
+        var result = new List<(string, decimal)>();
+        var ordered = Logs.OrderBy(f => f.FilledAt).ToList();
+
+        for (int i = 1; i < ordered.Count; i++)
+        {
+            var curr = ordered[i];
+            var prev = ordered[i - 1];
+            var distKm = curr.OdometerReading - prev.OdometerReading;
+            if (distKm <= 0) continue;
+
+            var cpk = Calc.CostPerKm(curr.TotalCost, distKm);
+            if (!cpk.HasValue) continue;
+            var value = Units.CostPerDistUnit(cpk.Value, CostDistUnit);
+            result.Add((curr.FilledAt.ToLocalTime().ToString("MMM d"), Math.Round(value, 2)));
+        }
+        return result;
+    }
+}

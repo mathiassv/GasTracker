@@ -1,0 +1,85 @@
+@page "/cars/add"
+@layout MainLayout
+@attribute [Authorize]
+@inject IUnitOfWork Uow
+@inject AuthenticationStateProvider AuthState
+@inject NavigationManager Nav
+
+<PageTitle>Add Car — GasTracker</PageTitle>
+
+<div class="d-flex align-items-center mb-3">
+    <a href="/cars" class="btn btn-sm btn-outline-secondary me-2"><i class="fa fa-arrow-left"></i></a>
+    <h2 class="h4 mb-0">Add Car</h2>
+</div>
+
+<EditForm Model="_model" OnValidSubmit="SubmitAsync">
+    <DataAnnotationsValidator />
+    <ValidationSummary />
+
+    <div class="mb-3">
+        <label class="form-label fw-bold">Name <span class="text-danger">*</span></label>
+        <InputText class="form-control" @bind-Value="_model.Name" placeholder="e.g. 2019 Toyota Corolla" maxlength="100" />
+        <ValidationMessage For="() => _model.Name" />
+    </div>
+
+    <div class="mb-3">
+        <label class="form-label fw-bold">License plate</label>
+        <InputText class="form-control" @bind-Value="_model.LicensePlate" placeholder="Optional" />
+    </div>
+
+    <div class="mb-3">
+        <label class="form-label fw-bold">Starting odometer (@_unit)</label>
+        <InputNumber class="form-control" @bind-Value="_model.StartingOdometerDisplay" />
+        <ValidationMessage For="() => _model.StartingOdometerDisplay" />
+        <div class="form-text">Enter your current odometer reading.</div>
+    </div>
+
+    <button type="submit" class="btn btn-primary w-100" disabled="@_saving">
+        @(_saving ? "Saving…" : "Save car")
+    </button>
+</EditForm>
+
+@code {
+    private CarFormModel _model = new();
+    private bool _saving;
+    private string _unit = "km";
+    private AppUser? _currentUser;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var auth = await AuthState.GetAuthenticationStateAsync();
+        var userId = int.Parse(auth.User.FindFirst("app_user_id")?.Value ?? "0");
+        _currentUser = await Uow.Users.GetByIdAsync(userId);
+        _unit = _currentUser?.PreferredUnit ?? "km";
+    }
+
+    private async Task SubmitAsync()
+    {
+        _saving = true;
+        var odoKm = _unit == "miles"
+            ? _model.StartingOdometerDisplay * 1.60934m
+            : _model.StartingOdometerDisplay;
+
+        var car = new Car
+        {
+            AppUserId = _currentUser!.Id,
+            Name = _model.Name,
+            LicensePlate = string.IsNullOrWhiteSpace(_model.LicensePlate) ? null : _model.LicensePlate,
+            StartingOdometer = odoKm
+        };
+        await Uow.Cars.AddAsync(car);
+        await Uow.SaveChangesAsync();
+        Nav.NavigateTo($"/cars/{car.Id}");
+    }
+
+    private class CarFormModel
+    {
+        [System.ComponentModel.DataAnnotations.Required(ErrorMessage = "Name is required")]
+        [System.ComponentModel.DataAnnotations.MaxLength(100)]
+        public string Name { get; set; } = "";
+        public string? LicensePlate { get; set; }
+
+        [System.ComponentModel.DataAnnotations.Range(0, double.MaxValue, ErrorMessage = "Must be 0 or greater")]
+        public decimal StartingOdometerDisplay { get; set; }
+    }
+}

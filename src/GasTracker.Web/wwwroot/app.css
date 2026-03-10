@@ -1,0 +1,193 @@
+html, body {
+    font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
+    height: 100%;
+    margin: 0;
+    padding: 0;
+    background: #f8f9fa;
+}
+
+/* ---- App shell ---- */
+.gt-app {
+    display: flex;
+    flex-direction: column;
+    min-height: 100vh;
+    max-width: 600px;
+    margin: 0 auto;
+    background: #fff;
+    box-shadow: 0 0 20px rgba(0,0,0,0.08);
+}
+
+/* ---- Top bar ---- */
+.gt-topbar {
+    background: #1b6ec2;
+    color: #fff;
+    height: 56px;
+    position: sticky;
+    top: 0;
+    z-index: 100;
+    flex-shrink: 0;
+}
+
+.gt-logo {
+    font-size: 1.2rem;
+    letter-spacing: 0.5px;
+}
+
+/* ---- Content ---- */
+.gt-content {
+    flex: 1;
+    padding: 1rem;
+    padding-bottom: 80px; /* room for bottom nav */
+    overflow-y: auto;
+}
+
+/* ---- Bottom nav ---- */
+.gt-bottom-nav {
+    background: #fff;
+    border-top: 1px solid #e0e0e0;
+    height: 64px;
+    position: fixed;
+    bottom: 0;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 100%;
+    max-width: 600px;
+    z-index: 100;
+}
+
+.gt-nav-item {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    color: #888;
+    text-decoration: none;
+    font-size: 0.7rem;
+    min-width: 44px;
+    min-height: 44px;
+    padding: 4px 16px;
+    border-radius: 8px;
+    transition: color 0.15s;
+}
+
+.gt-nav-item i {
+    font-size: 1.3rem;
+    margin-bottom: 2px;
+}
+
+.gt-nav-item.active,
+.gt-nav-item:hover {
+    color: #1b6ec2;
+}
+
+/* ---- Forms ---- */
+.form-control, .form-select {
+    font-size: 1rem;
+    min-height: 44px;
+}
+
+.btn {
+    min-height: 44px;
+    font-size: 1rem;
+}
+
+.btn-sm {
+    min-height: 36px;
+}
+
+/* ---- Cards ---- */
+.car-card {
+    border: 1px solid #e0e0e0;
+    border-radius: 12px;
+    padding: 1rem;
+    margin-bottom: 0.75rem;
+    cursor: pointer;
+    transition: box-shadow 0.15s;
+    text-decoration: none;
+    color: inherit;
+    display: block;
+}
+
+.car-card:hover {
+    box-shadow: 0 2px 12px rgba(0,0,0,0.1);
+    color: inherit;
+}
+
+.log-row {
+    border-bottom: 1px solid #f0f0f0;
+    padding: 0.6rem 0;
+}
+
+/* ---- Stats ---- */
+.stat-badge {
+    background: #e8f0fe;
+    border-radius: 8px;
+    padding: 0.5rem 1rem;
+    text-align: center;
+    margin-bottom: 0.5rem;
+}
+
+.stat-badge .stat-value {
+    font-size: 1.4rem;
+    font-weight: 700;
+    color: #1b6ec2;
+}
+
+.stat-badge .stat-label {
+    font-size: 0.75rem;
+    color: #555;
+}
+
+/* ---- Misc ---- */
+a, .btn-link {
+    color: #1b6ec2;
+}
+
+.validation-message {
+    color: #e50000;
+    font-size: 0.85rem;
+}
+
+.valid.modified:not([type=checkbox]) {
+    outline: 1px solid #26b050;
+}
+
+.invalid {
+    outline: 1px solid #e50000;
+}
+
+.blazor-error-boundary {
+    background: #b32121;
+    padding: 1rem 1rem 1rem 3.7rem;
+    color: white;
+}
+
+.blazor-error-boundary::after {
+    content: "An error has occurred."
+}
+
+#blazor-error-ui {
+    background: lightyellow;
+    bottom: 0;
+    box-shadow: 0 -1px 2px rgba(0, 0, 0, 0.2);
+    display: none;
+    left: 0;
+    padding: 0.6rem 1.25rem 0.7rem 1.25rem;
+    position: fixed;
+    width: 100%;
+    z-index: 1000;
+}
+
+#blazor-error-ui .dismiss {
+    cursor: pointer;
+    position: absolute;
+    right: 0.75rem;
+    top: 0.5rem;
+}
+
+.loading-spinner {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    padding: 2rem;
+}

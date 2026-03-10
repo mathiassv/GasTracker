@@ -1,0 +1,12 @@
+@page "/"
+@layout MainLayout
+@inject NavigationManager Nav
+
+<AuthorizeView>
+    <Authorized>
+        @{ Nav.NavigateTo("/cars", replace: true); }
+    </Authorized>
+    <NotAuthorized>
+        @{ Nav.NavigateTo("/login", replace: true); }
+    </NotAuthorized>
+</AuthorizeView>

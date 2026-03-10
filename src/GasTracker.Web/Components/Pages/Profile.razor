@@ -1,0 +1,114 @@
+@page "/profile"
+@layout MainLayout
+@attribute [Authorize]
+@inject IUnitOfWork Uow
+@inject AuthenticationStateProvider AuthState
+
+<PageTitle>Profile — GasTracker</PageTitle>
+
+<h2 class="h4 mb-3">Profile</h2>
+
+@if (_user is null)
+{
+    <LoadingSpinner />
+}
+else
+{
+    <EditForm Model="_model" OnValidSubmit="SaveAsync">
+        <DataAnnotationsValidator />
+        <ValidationSummary />
+
+        <div class="mb-3">
+            <label class="form-label fw-bold">Name</label>
+            <input class="form-control" value="@_user.DisplayName" disabled />
+        </div>
+
+        <div class="mb-3">
+            <label class="form-label fw-bold">Email</label>
+            <input class="form-control" value="@_user.Email" disabled />
+        </div>
+
+        <div class="mb-3">
+            <label class="form-label fw-bold">Preferred unit</label>
+            <select class="form-select" @bind="_model.PreferredUnit">
+                <option value="km">km / liters (metric)</option>
+                <option value="miles">miles / gallons (imperial)</option>
+            </select>
+        </div>
+
+        <div class="mb-3">
+            <label class="form-label fw-bold">Stats scale</label>
+            <select class="form-select" @bind="_model.StatScale">
+                <option value="1">Per 1 unit (km or mi)</option>
+                <option value="10">Per 10 units (default)</option>
+                <option value="100">Per 100 units</option>
+            </select>
+        </div>
+
+        <div class="mb-3">
+            <label class="form-label fw-bold">Currency code</label>
+            <input class="form-control" @bind="_model.CurrencyCode" maxlength="3" placeholder="SEK" />
+        </div>
+
+        <div class="mb-3">
+            <label class="form-label fw-bold">Currency symbol</label>
+            <input class="form-control" @bind="_model.CurrencySymbol" maxlength="5" placeholder="kr" />
+        </div>
+
+        <button type="submit" class="btn btn-primary w-100" disabled="@_saving">
+            @(_saving ? "Saving…" : "Save")
+        </button>
+
+        @if (_saved)
+        {
+            <div class="alert alert-success mt-3">Saved!</div>
+        }
+    </EditForm>
+}
+
+@code {
+    private AppUser? _user;
+    private ProfileModel _model = new();
+    private bool _saving;
+    private bool _saved;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var auth = await AuthState.GetAuthenticationStateAsync();
+        var userId = int.Parse(auth.User.FindFirst("app_user_id")?.Value ?? "0");
+        _user = await Uow.Users.GetByIdAsync(userId);
+        if (_user is not null)
+        {
+            _model = new ProfileModel
+            {
+                PreferredUnit = _user.PreferredUnit,
+                StatScale = _user.StatScale,
+                CurrencyCode = _user.CurrencyCode,
+                CurrencySymbol = _user.CurrencySymbol
+            };
+        }
+    }
+
+    private async Task SaveAsync()
+    {
+        if (_user is null) return;
+        _saving = true;
+        _saved = false;
+        _user.PreferredUnit = _model.PreferredUnit;
+        _user.StatScale = _model.StatScale;
+        _user.CurrencyCode = _model.CurrencyCode.ToUpper();
+        _user.CurrencySymbol = _model.CurrencySymbol;
+        await Uow.Users.UpdateAsync(_user);
+        await Uow.SaveChangesAsync();
+        _saving = false;
+        _saved = true;
+    }
+
+    private class ProfileModel
+    {
+        public string PreferredUnit { get; set; } = "km";
+        public int StatScale { get; set; } = 10;
+        public string CurrencyCode { get; set; } = "SEK";
+        public string CurrencySymbol { get; set; } = "kr";
+    }
+}

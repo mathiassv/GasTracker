@@ -1,0 +1,62 @@
+@using Blazorise.Charts
+@inject FuelCalculatorService Calc
+@inject UnitConversionService Units
+
+<LineChart TItem="decimal" @ref="_chart" />
+
+@code {
+    [Parameter] public List<FuelLog> Logs { get; set; } = [];
+    [Parameter] public string CostDistUnit { get; set; } = "10km";
+
+    private LineChart<decimal> _chart = null!;
+    private bool _rendered;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender) { _rendered = true; await RenderChartAsync(); }
+    }
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (_rendered) await RenderChartAsync();
+    }
+
+    private async Task RenderChartAsync()
+    {
+        await _chart.Clear();
+        var points = BuildDataPoints();
+        if (!points.Any()) return;
+
+        await _chart.AddLabelsDatasetsAndUpdate(
+            points.Select(p => p.Label).ToList(),
+            new LineChartDataset<decimal>
+            {
+                Label = Units.EfficiencyLabel(CostDistUnit),
+                Data = points.Select(p => p.Value).ToList(),
+                BackgroundColor = "rgba(27,110,194,0.2)",
+                BorderColor = "rgba(27,110,194,1)",
+                Fill = true
+            });
+    }
+
+    private List<(string Label, decimal Value)> BuildDataPoints()
+    {
+        var result = new List<(string, decimal)>();
+        var ordered = Logs.OrderBy(f => f.FilledAt).ToList();
+
+        for (int i = 1; i < ordered.Count; i++)
+        {
+            var curr = ordered[i];
+            var prev = ordered[i - 1];
+            var distKm = curr.OdometerReading - prev.OdometerReading;
+            if (distKm <= 0) continue;
+
+            decimal? value = Units.LitersPerDistUnit(curr.LitersFilled, distKm, CostDistUnit)
+                ?? Calc.MilesPerGallon(Units.KmToMiles(distKm), Units.LitersToGallons(curr.LitersFilled));
+
+            if (value.HasValue)
+                result.Add((curr.FilledAt.ToLocalTime().ToString("MMM d"), Math.Round(value.Value, 2)));
+        }
+        return result;
+    }
+}

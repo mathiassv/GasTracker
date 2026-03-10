@@ -1,0 +1,73 @@
+@inherits LayoutComponentBase
+@inject NavigationManager Nav
+@inject AuthenticationStateProvider AuthStateProvider
+
+<div class="gt-app">
+    <!-- Top bar -->
+    <header class="gt-topbar d-flex align-items-center px-3">
+        <span class="gt-logo fw-bold me-auto">
+            <i class="fa fa-gas-pump me-2"></i>GasTracker
+        </span>
+        <AuthorizeView>
+            <Authorized>
+                <form method="post" action="/auth/logout" class="mb-0">
+                    <AntiforgeryToken />
+                    <button type="submit" class="btn btn-sm btn-outline-light">Sign out</button>
+                </form>
+            </Authorized>
+        </AuthorizeView>
+    </header>
+
+    <!-- Page content -->
+    <main class="gt-content">
+        <ErrorBoundary>
+            <ChildContent>
+                @Body
+            </ChildContent>
+            <ErrorContent Context="ex">
+                <div class="alert alert-danger m-3">
+                    <strong>Something went wrong.</strong>
+                    <p>@ex.Message</p>
+                    <button class="btn btn-sm btn-danger" @onclick="() => Nav.NavigateTo(Nav.Uri, true)">Reload</button>
+                </div>
+            </ErrorContent>
+        </ErrorBoundary>
+    </main>
+
+    <!-- Bottom nav for mobile -->
+    <nav class="gt-bottom-nav d-flex justify-content-around align-items-center">
+        <AuthorizeView>
+            <Authorized>
+                <a href="/cars" class="gt-nav-item @IsActive("/cars")">
+                    <i class="fa fa-car"></i>
+                    <span>Cars</span>
+                </a>
+                <a href="/stats" class="gt-nav-item @IsActive("/stats")">
+                    <i class="fa fa-chart-line"></i>
+                    <span>Stats</span>
+                </a>
+                <a href="/profile" class="gt-nav-item @IsActive("/profile")">
+                    <i class="fa fa-user"></i>
+                    <span>Profile</span>
+                </a>
+            </Authorized>
+            <NotAuthorized>
+                <a href="/login" class="gt-nav-item">
+                    <i class="fa fa-sign-in-alt"></i>
+                    <span>Login</span>
+                </a>
+            </NotAuthorized>
+        </AuthorizeView>
+    </nav>
+</div>
+
+<div id="blazor-error-ui" data-nosnippet>
+    An unhandled error has occurred.
+    <a href="." class="reload">Reload</a>
+    <span class="dismiss">&#x2715;</span>
+</div>
+
+@code {
+    private string IsActive(string prefix) =>
+        Nav.Uri.Contains(prefix, StringComparison.OrdinalIgnoreCase) ? "active" : "";
+}

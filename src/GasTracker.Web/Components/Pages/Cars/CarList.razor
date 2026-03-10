@@ -1,0 +1,61 @@
+@page "/cars"
+@layout MainLayout
+@attribute [Authorize]
+@inject IUnitOfWork Uow
+@inject AuthenticationStateProvider AuthState
+@inject NavigationManager Nav
+
+<PageTitle>My Cars — GasTracker</PageTitle>
+
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <h2 class="h4 mb-0">My Cars</h2>
+    <a href="/cars/add" class="btn btn-primary btn-sm">
+        <i class="fa fa-plus me-1"></i>Add car
+    </a>
+</div>
+
+@if (_loading)
+{
+    <LoadingSpinner />
+}
+else if (!_cars.Any())
+{
+    <div class="text-center text-muted py-4">
+        <i class="fa fa-car fa-3x mb-3 d-block"></i>
+        <p>No cars yet. Add your first car to start tracking!</p>
+        <a href="/cars/add" class="btn btn-primary">Add car</a>
+    </div>
+}
+else
+{
+    @foreach (var car in _cars)
+    {
+        <a href="/cars/@car.Id" class="car-card">
+            <div class="d-flex align-items-center">
+                <i class="fa fa-car fa-lg text-primary me-3"></i>
+                <div>
+                    <div class="fw-bold">@car.Name</div>
+                    @if (!string.IsNullOrEmpty(car.LicensePlate))
+                    {
+                        <div class="text-muted small">@car.LicensePlate</div>
+                    }
+                </div>
+                <i class="fa fa-chevron-right ms-auto text-muted"></i>
+            </div>
+        </a>
+    }
+}
+
+@code {
+    private List<Car> _cars = [];
+    private bool _loading = true;
+    private int _userId;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var auth = await AuthState.GetAuthenticationStateAsync();
+        _userId = int.Parse(auth.User.FindFirst("app_user_id")?.Value ?? "0");
+        _cars = (await Uow.Cars.GetByUserIdAsync(_userId)).ToList();
+        _loading = false;
+    }
+}

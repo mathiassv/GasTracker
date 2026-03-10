@@ -1,0 +1,27 @@
+@page "/login"
+@layout MainLayout
+@inject IWebHostEnvironment Env
+
+<PageTitle>Sign In — GasTracker</PageTitle>
+
+<div class="d-flex flex-column align-items-center justify-content-center" style="min-height:60vh">
+    <div class="text-center mb-4">
+        <i class="fa fa-gas-pump fa-3x text-primary mb-3"></i>
+        <h1 class="h3 fw-bold">GasTracker</h1>
+        <p class="text-muted">Track fuel costs &amp; efficiency for your vehicles.</p>
+    </div>
+
+    <a href="/auth/login" class="btn btn-primary btn-lg px-5">
+        <i class="fab fa-google me-2"></i>Sign in with Google
+    </a>
+
+    @if (Env.IsDevelopment())
+    {
+        <div class="mt-4 pt-4 border-top w-100 text-center">
+            <p class="text-muted small mb-2">Development only</p>
+            <a href="/auth/dev-login" class="btn btn-outline-secondary">
+                <i class="fa fa-code me-2"></i>Dev login (dev@localhost)
+            </a>
+        </div>
+    }
+</div>
