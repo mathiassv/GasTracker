@@ -5,12 +5,8 @@ services:
     ports:
       - "5220:8080"
     volumes:
-      - gastracker-data:/app/data
+      - /var/docker/GasTracker/Data:/app/data
     environment:
-      ASPNETCORE_ENVIRONMENT: Production
+      ASPNETCORE_ENVIRONMENT: Development
       ConnectionStrings__DefaultConnection: Data Source=/app/data/gastracker.db
-      Authentication__Google__ClientId: ${GOOGLE_CLIENT_ID}
-      Authentication__Google__ClientSecret: ${GOOGLE_CLIENT_SECRET}
-
-volumes:
-  gastracker-data:
+    env_file: /root/docker/gt_env.env
