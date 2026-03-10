@@ -107,7 +107,6 @@ if (!app.Environment.IsDevelopment())
 }
 
 app.UseStatusCodePagesWithReExecute("/not-found");
-app.UseStaticFiles(); // Required to reliably serve framework files like blazor.web.js in Production/Docker
 app.UseAuthentication();
 app.UseAuthorization();
 app.UseAntiforgery();
