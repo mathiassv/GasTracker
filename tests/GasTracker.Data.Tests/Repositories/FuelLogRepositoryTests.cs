@@ -81,7 +81,7 @@ public class FuelLogRepositoryTests
         await ctx.SaveChangesAsync();
 
         var repo = new FuelLogRepository(ctx);
-        var prev = await repo.GetPreviousLogAsync(car1.Id, baseDate.AddDays(5));
+        var prev = await repo.GetPreviousLogAsync(car1.Id, user1.Id, baseDate.AddDays(5));
 
         Assert.NotNull(prev);
         Assert.Equal(1000, prev.OdometerReading);
@@ -91,10 +91,10 @@ public class FuelLogRepositoryTests
     public async Task GetPreviousLogAsync_NoLogs_ReturnsNull()
     {
         using var ctx = CreateContext(nameof(GetPreviousLogAsync_NoLogs_ReturnsNull));
-        var (_, _, car1, _) = await SeedTwoUsersAsync(ctx);
+        var (user1, _, car1, _) = await SeedTwoUsersAsync(ctx);
 
         var repo = new FuelLogRepository(ctx);
-        var prev = await repo.GetPreviousLogAsync(car1.Id, DateTime.UtcNow);
+        var prev = await repo.GetPreviousLogAsync(car1.Id, user1.Id, DateTime.UtcNow);
 
         Assert.Null(prev);
     }

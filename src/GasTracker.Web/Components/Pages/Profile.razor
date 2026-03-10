@@ -47,12 +47,14 @@ else
 
         <div class="mb-3">
             <label class="form-label fw-bold">Currency code</label>
-            <input class="form-control" @bind="_model.CurrencyCode" maxlength="3" placeholder="SEK" />
+            <InputText class="form-control" @bind-Value="_model.CurrencyCode" maxlength="3" placeholder="SEK" />
+            <ValidationMessage For="() => _model.CurrencyCode" />
         </div>
 
         <div class="mb-3">
             <label class="form-label fw-bold">Currency symbol</label>
-            <input class="form-control" @bind="_model.CurrencySymbol" maxlength="5" placeholder="kr" />
+            <InputText class="form-control" @bind-Value="_model.CurrencySymbol" maxlength="5" placeholder="kr" />
+            <ValidationMessage For="() => _model.CurrencySymbol" />
         </div>
 
         <button type="submit" class="btn btn-primary w-100" disabled="@_saving">
@@ -108,7 +110,14 @@ else
     {
         public string PreferredUnit { get; set; } = "km";
         public int StatScale { get; set; } = 10;
+
+        [System.ComponentModel.DataAnnotations.Required(ErrorMessage = "Currency code is required")]
+        [System.ComponentModel.DataAnnotations.StringLength(3, MinimumLength = 3, ErrorMessage = "Must be exactly 3 characters")]
+        [System.ComponentModel.DataAnnotations.RegularExpression(@"^[A-Za-z]{3}$", ErrorMessage = "Must be 3 letters (e.g. USD, SEK)")]
         public string CurrencyCode { get; set; } = "SEK";
+
+        [System.ComponentModel.DataAnnotations.Required(ErrorMessage = "Currency symbol is required")]
+        [System.ComponentModel.DataAnnotations.StringLength(5, MinimumLength = 1, ErrorMessage = "Required")]
         public string CurrencySymbol { get; set; } = "kr";
     }
 }

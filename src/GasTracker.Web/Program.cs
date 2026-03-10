@@ -9,8 +9,10 @@ using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Authentication.Google;
 using Microsoft.AspNetCore.HttpOverrides;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 using System.Security.Claims;
+using System.Threading.RateLimiting;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -76,6 +78,19 @@ builder.Services
     .AddBootstrap5Providers()
     .AddFontAwesomeIcons();
 
+// Rate limiting — 300 requests/min per user (or IP if anonymous)
+builder.Services.AddRateLimiter(options =>
+{
+    options.AddFixedWindowLimiter("global", opt =>
+    {
+        opt.PermitLimit = 300;
+        opt.Window = TimeSpan.FromMinutes(1);
+        opt.QueueProcessingOrder = QueueProcessingOrder.OldestFirst;
+        opt.QueueLimit = 0;
+    });
+    options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+});
+
 // Blazor
 builder.Services.AddRazorComponents()
     .AddInteractiveServerComponents();
@@ -90,13 +105,15 @@ using (var scope = app.Services.CreateScope())
     await db.Database.MigrateAsync();
 }
 
-// Trust X-Forwarded-For / X-Forwarded-Proto from Apache reverse proxy
+// Trust X-Forwarded-For / X-Forwarded-Proto from Apache reverse proxy (internal LAN only)
 var forwardedHeadersOptions = new ForwardedHeadersOptions
 {
-  ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto
+    ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto
 };
-forwardedHeadersOptions.KnownIPNetworks.Clear();
-forwardedHeadersOptions.KnownProxies.Clear();
+// Trust only the internal LAN subnet where Apache lives — prevents header spoofing from external clients
+forwardedHeadersOptions.KnownIPNetworks.Add(System.Net.IPNetwork.Parse("172.16.0.0/12"));
+forwardedHeadersOptions.KnownIPNetworks.Add(System.Net.IPNetwork.Parse("192.168.0.0/16"));
+forwardedHeadersOptions.KnownIPNetworks.Add(System.Net.IPNetwork.Parse("10.0.0.0/8"));
 app.UseForwardedHeaders(forwardedHeadersOptions);
 
 if (!app.Environment.IsDevelopment())
@@ -105,6 +122,18 @@ if (!app.Environment.IsDevelopment())
     app.UseHsts();
 }
 
+// Security headers
+app.Use(async (ctx, next) =>
+{
+    ctx.Response.Headers["X-Content-Type-Options"] = "nosniff";
+    ctx.Response.Headers["X-Frame-Options"] = "DENY";
+    ctx.Response.Headers["X-XSS-Protection"] = "1; mode=block";
+    ctx.Response.Headers["Referrer-Policy"] = "strict-origin-when-cross-origin";
+    ctx.Response.Headers["Permissions-Policy"] = "geolocation=(), microphone=(), camera=()";
+    await next();
+});
+
+app.UseRateLimiter();
 app.UseStatusCodePagesWithReExecute("/not-found");
 app.UseStaticFiles(); // Hard fallback for framework static assets in published Docker environments
 app.UseRouting();
@@ -154,6 +183,7 @@ if (app.Environment.IsDevelopment())
 
 app.MapStaticAssets();
 app.MapRazorComponents<App>()
-    .AddInteractiveServerRenderMode();
+    .AddInteractiveServerRenderMode()
+    .RequireRateLimiting("global");
 
 app.Run();

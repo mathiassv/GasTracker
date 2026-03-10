@@ -19,9 +19,9 @@ public class FuelLogRepository(GasTrackerDbContext context) : BaseRepository<Fue
             .OrderBy(f => f.FilledAt)
             .ToListAsync();
 
-    public async Task<FuelLog?> GetPreviousLogAsync(int carId, DateTime before) =>
+    public async Task<FuelLog?> GetPreviousLogAsync(int carId, int userId, DateTime before) =>
         await Context.FuelLogs
-            .Where(f => f.CarId == carId && f.FilledAt < before)
+            .Where(f => f.CarId == carId && f.Car.AppUserId == userId && f.FilledAt < before)
             .OrderByDescending(f => f.FilledAt)
             .FirstOrDefaultAsync();
 }

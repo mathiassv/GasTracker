@@ -1,6 +1,7 @@
 @inherits LayoutComponentBase
 @inject NavigationManager Nav
 @inject AuthenticationStateProvider AuthStateProvider
+@inject IWebHostEnvironment Env
 
 <div class="gt-app">
     <!-- Top bar -->
@@ -27,7 +28,10 @@
             <ErrorContent Context="ex">
                 <div class="alert alert-danger m-3">
                     <strong>Something went wrong.</strong>
-                    <p>@ex.Message</p>
+                    @if (Env.IsDevelopment())
+                    {
+                        <p class="small mb-1">@ex.Message</p>
+                    }
                     <button class="btn btn-sm btn-danger" @onclick="() => Nav.NavigateTo(Nav.Uri, true)">Reload</button>
                 </div>
             </ErrorContent>

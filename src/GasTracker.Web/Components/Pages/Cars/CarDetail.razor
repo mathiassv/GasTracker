@@ -212,6 +212,8 @@ else
 
     private async Task DeleteLogAsync(int logId)
     {
+        // IDOR guard: only delete logs that belong to this user's car
+        if (!_logs.Any(l => l.Id == logId)) return;
         await Uow.FuelLogs.DeleteAsync(logId);
         await Uow.SaveChangesAsync();
         _car = await Uow.Cars.GetWithFuelLogsAsync(CarId, _userId);
