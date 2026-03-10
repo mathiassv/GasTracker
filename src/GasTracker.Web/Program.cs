@@ -8,6 +8,7 @@ using GasTracker.Web.Services;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Authentication.Google;
+using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.EntityFrameworkCore;
 using System.Security.Claims;
 
@@ -89,14 +90,20 @@ using (var scope = app.Services.CreateScope())
     await db.Database.MigrateAsync();
 }
 
+// Trust X-Forwarded-For / X-Forwarded-Proto from Apache reverse proxy
+app.UseForwardedHeaders(new ForwardedHeadersOptions
+{
+    ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto
+});
+
 if (!app.Environment.IsDevelopment())
 {
     app.UseExceptionHandler("/error", createScopeForErrors: true);
     app.UseHsts();
+    app.UseHttpsRedirection();
 }
 
 app.UseStatusCodePagesWithReExecute("/not-found");
-app.UseHttpsRedirection();
 app.UseAuthentication();
 app.UseAuthorization();
 app.UseAntiforgery();
