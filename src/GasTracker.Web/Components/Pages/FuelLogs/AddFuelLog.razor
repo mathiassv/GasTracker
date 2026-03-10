@@ -86,7 +86,7 @@ else
     private Car? _car;
     private FuelLog? _prevLog;
     [SupplyParameterFromForm(FormName = "add-fuellog")]
-    private FuelLogFormModel _model { get; set; } = new() { FilledAt = DateTime.Now };
+    private FuelLogFormModel? _model { get; set; }
     private bool _loading = true;
     private bool _saving;
     private string _unit = "km";
@@ -102,6 +102,7 @@ else
 
     protected override async Task OnInitializedAsync()
     {
+        _model ??= new() { FilledAt = DateTime.Now };
         var auth = await AuthState.GetAuthenticationStateAsync();
         _userId = int.Parse(auth.User.FindFirst("app_user_id")?.Value ?? "0");
         var user = await Uow.Users.GetByIdAsync(_userId);
@@ -124,10 +125,10 @@ else
 
     private void RecalculatePreview()
     {
-        if (_model.OdometerDisplay <= 0 || _model.VolumeDisplay <= 0) { _preview = null; return; }
+        if (_model!.OdometerDisplay <= 0 || _model!.VolumeDisplay <= 0) { _preview = null; return; }
 
-        var odoKm = Units.ConvertDistanceToKm(_model.OdometerDisplay, _unit);
-        var liters = Units.ConvertVolumeToLiters(_model.VolumeDisplay, _unit);
+        var odoKm = Units.ConvertDistanceToKm(_model!.OdometerDisplay, _unit);
+        var liters = Units.ConvertVolumeToLiters(_model!.VolumeDisplay, _unit);
 
         if (_prevLog is not null)
         {
@@ -147,8 +148,8 @@ else
         _validationError = null;
         if (_car is null) return;
 
-        var odoKm = Units.ConvertDistanceToKm(_model.OdometerDisplay, _unit);
-        var liters = Units.ConvertVolumeToLiters(_model.VolumeDisplay, _unit);
+        var odoKm = Units.ConvertDistanceToKm(_model!.OdometerDisplay, _unit);
+        var liters = Units.ConvertVolumeToLiters(_model!.VolumeDisplay, _unit);
 
         // Validation
         if (odoKm <= _car.StartingOdometer)

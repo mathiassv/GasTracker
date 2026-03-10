@@ -48,6 +48,7 @@
 
     protected override async Task OnInitializedAsync()
     {
+        _model ??= new();
         var auth = await AuthState.GetAuthenticationStateAsync();
         var userId = int.Parse(auth.User.FindFirst("app_user_id")?.Value ?? "0");
         _currentUser = await Uow.Users.GetByIdAsync(userId);
@@ -58,14 +59,14 @@
     {
         _saving = true;
         var odoKm = _unit == "miles"
-            ? _model.StartingOdometerDisplay * 1.60934m
-            : _model.StartingOdometerDisplay;
+            ? _model!.StartingOdometerDisplay * 1.60934m
+            : _model!.StartingOdometerDisplay;
 
         var car = new Car
         {
             AppUserId = _currentUser!.Id,
-            Name = _model.Name,
-            LicensePlate = string.IsNullOrWhiteSpace(_model.LicensePlate) ? null : _model.LicensePlate,
+            Name = _model!.Name,
+            LicensePlate = string.IsNullOrWhiteSpace(_model!.LicensePlate) ? null : _model!.LicensePlate,
             StartingOdometer = odoKm
         };
         await Uow.Cars.AddAsync(car);
