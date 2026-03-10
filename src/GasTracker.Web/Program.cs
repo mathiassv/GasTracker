@@ -103,10 +103,11 @@ if (!app.Environment.IsDevelopment())
 {
     app.UseExceptionHandler("/error", createScopeForErrors: true);
     app.UseHsts();
-    app.UseHttpsRedirection();
 }
 
 app.UseStatusCodePagesWithReExecute("/not-found");
+app.UseStaticFiles(); // Hard fallback for framework static assets in published Docker environments
+app.UseRouting();
 app.UseAuthentication();
 app.UseAuthorization();
 app.UseAntiforgery();

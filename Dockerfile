@@ -1,14 +1,17 @@
 FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
 WORKDIR /src
 
-# Copy project files first for layer caching
 COPY src/GasTracker.Data/GasTracker.Data.csproj src/GasTracker.Data/
 COPY src/GasTracker.Web/GasTracker.Web.csproj  src/GasTracker.Web/
 RUN dotnet restore src/GasTracker.Web/GasTracker.Web.csproj
 
 COPY src/ src/
 RUN dotnet publish src/GasTracker.Web/GasTracker.Web.csproj \
-    -c Release -o /app/publish --no-restore
+    -c Release -o /app/publish
+
+# Show what framework files made it into the publish output
+RUN echo "=== _framework files ===" && \
+    find /app/publish -path "*_framework*" -type f 2>/dev/null || echo "NONE - framework files missing"
 
 FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS runtime
 WORKDIR /app
