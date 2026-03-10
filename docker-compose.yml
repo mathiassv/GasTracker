@@ -7,6 +7,6 @@ services:
     volumes:
       - /var/docker/GasTracker/Data:/app/data
     environment:
-      ASPNETCORE_ENVIRONMENT: Development
+      ASPNETCORE_ENVIRONMENT: Production
       ConnectionStrings__DefaultConnection: Data Source=/app/data/gastracker.db
     env_file: /root/docker/gt_env.env
