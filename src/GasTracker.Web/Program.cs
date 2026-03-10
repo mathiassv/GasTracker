@@ -91,10 +91,13 @@ using (var scope = app.Services.CreateScope())
 }
 
 // Trust X-Forwarded-For / X-Forwarded-Proto from Apache reverse proxy
-app.UseForwardedHeaders(new ForwardedHeadersOptions
+var forwardedHeadersOptions = new ForwardedHeadersOptions
 {
-    ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto
-});
+  ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto
+};
+forwardedHeadersOptions.KnownIPNetworks.Clear();
+forwardedHeadersOptions.KnownProxies.Clear();
+app.UseForwardedHeaders(forwardedHeadersOptions);
 
 if (!app.Environment.IsDevelopment())
 {
@@ -104,6 +107,7 @@ if (!app.Environment.IsDevelopment())
 }
 
 app.UseStatusCodePagesWithReExecute("/not-found");
+app.UseStaticFiles(); // Required to reliably serve framework files like blazor.web.js in Production/Docker
 app.UseAuthentication();
 app.UseAuthorization();
 app.UseAntiforgery();
