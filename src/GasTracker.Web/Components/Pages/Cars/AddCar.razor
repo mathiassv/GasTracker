@@ -40,7 +40,8 @@
 </EditForm>
 
 @code {
-    private CarFormModel _model = new();
+    [SupplyParameterFromForm(FormName = "add-car")]
+    private CarFormModel? _model { get; set; }
     private bool _saving;
     private string _unit = "km";
     private AppUser? _currentUser;

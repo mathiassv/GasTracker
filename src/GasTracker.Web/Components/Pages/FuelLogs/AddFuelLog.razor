@@ -25,7 +25,7 @@ else if (_car is null)
 }
 else
 {
-    <EditForm Model="_model" OnValidSubmit="SubmitAsync">
+    <EditForm Model="_model" OnValidSubmit="SubmitAsync" FormName="add-fuellog">
         <DataAnnotationsValidator />
         <ValidationSummary />
 
@@ -85,7 +85,8 @@ else
 
     private Car? _car;
     private FuelLog? _prevLog;
-    private FuelLogFormModel _model = new() { FilledAt = DateTime.Now };
+    [SupplyParameterFromForm(FormName = "add-fuellog")]
+    private FuelLogFormModel _model { get; set; } = new() { FilledAt = DateTime.Now };
     private bool _loading = true;
     private bool _saving;
     private string _unit = "km";
