@@ -96,7 +96,7 @@ cp .env.example .env
 docker compose up -d
 ```
 
-The app listens on **port 8080** (HTTP). Put Nginx, Caddy, or Traefik in front for TLS termination.
+The app listens on **port 5220** (HTTP). Put Nginx, Caddy, or Traefik in front for TLS termination.
 
 Before going live, add your production domain to the authorised redirect URIs in Google Cloud Console:
 

@@ -3,7 +3,7 @@ services:
     build: .
     restart: unless-stopped
     ports:
-      - "8080:8080"
+      - "5220:8080"
     volumes:
       - gastracker-data:/app/data
     environment:
