@@ -1,8 +1,7 @@
-const CACHE = 'gastracker-v1';
+const CACHE = 'gastracker-v2';
 
 // Static assets to pre-cache on install
 const PRECACHE = [
-    '/',
     '/app.css',
     '/theme.js',
     '/manifest.json',
@@ -29,12 +28,19 @@ self.addEventListener('activate', event => {
     );
 });
 
+// Auth paths that must never be intercepted — the OAuth state cookie
+// relies on these responses coming directly from the server.
+const AUTH_PATHS = /^\/(signin-google|auth\/|connect\/|_\/auth)/i;
+
 self.addEventListener('fetch', event => {
     const { request } = event;
     const url = new URL(request.url);
 
     // Only handle GET requests
     if (request.method !== 'GET') return;
+
+    // Never intercept auth / OAuth callback routes
+    if (url.origin === self.location.origin && AUTH_PATHS.test(url.pathname)) return;
 
     // For same-origin navigation requests: network-first, fall back to cached '/'
     if (request.mode === 'navigate' && url.origin === self.location.origin) {
