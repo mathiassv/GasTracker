@@ -113,14 +113,25 @@ public class FuelCalculatorServiceTests
     }
 
     [Fact]
-    public void AccumulatedStats_FirstLog_ReturnsNull()
+    public void AccumulatedStats_FirstLog_NoStartingOdometer_ReturnsNull()
     {
         var logs = new List<FuelLog> { MakeLog(1000, 40, 60) };
         Assert.Null(Sut().AccumulatedStats(logs, 0));
     }
 
     [Fact]
-    public void AccumulatedStats_AllPrecedingArePartials_ReturnsNull()
+    public void AccumulatedStats_FirstLog_WithStartingOdometer_ReturnsStats()
+    {
+        var logs = new List<FuelLog> { MakeLog(1400, 40, 60) };
+        var result = Sut().AccumulatedStats(logs, 0, startingOdometer: 1000);
+        Assert.NotNull(result);
+        Assert.Equal(400m, result.Value.DistanceKm);
+        Assert.Equal(40m, result.Value.TotalLiters);
+        Assert.Equal(60m, result.Value.TotalCost);
+    }
+
+    [Fact]
+    public void AccumulatedStats_AllPrecedingArePartials_NoStartingOdometer_ReturnsNull()
     {
         var logs = new List<FuelLog>
         {
@@ -128,6 +139,21 @@ public class FuelCalculatorServiceTests
             MakeLog(1400, 40, 60)
         };
         Assert.Null(Sut().AccumulatedStats(logs, 1));
+    }
+
+    [Fact]
+    public void AccumulatedStats_AllPrecedingArePartials_WithStartingOdometer_IncludesPartials()
+    {
+        var logs = new List<FuelLog>
+        {
+            MakePartial(1000, 10, 15),
+            MakeLog(1400, 40, 60)
+        };
+        var result = Sut().AccumulatedStats(logs, 1, startingOdometer: 800);
+        Assert.NotNull(result);
+        Assert.Equal(600m, result.Value.DistanceKm);  // 1400 - 800
+        Assert.Equal(50m, result.Value.TotalLiters);  // 10 + 40
+        Assert.Equal(75m, result.Value.TotalCost);    // 15 + 60
     }
 
     [Fact]

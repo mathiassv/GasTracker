@@ -139,18 +139,19 @@ else
         var odoKm = Units.ConvertDistanceToKm(_model!.OdometerDisplay, _unit);
         var newLiters = Units.ConvertVolumeToLiters(_model!.VolumeDisplay, _unit);
 
-        // Find previous full fill-up as the baseline
+        // Find previous full fill-up as the baseline; fall back to the car's starting odometer
         var allLogs = _car?.FuelLogs.OrderBy(f => f.FilledAt).ToList() ?? [];
         var prevFull = allLogs.LastOrDefault(f => !f.IsPartialFillUp);
-        if (prevFull is null) { _preview = null; return; }
+        var anchorOdometer = prevFull?.OdometerReading ?? _car?.StartingOdometer;
+        if (anchorOdometer is null) { _preview = null; return; }
 
-        // Include any partial fill-ups logged since the last full fill-up
+        // Include any partial fill-ups logged since the anchor
         var partialLiters = allLogs
-            .Where(f => f.IsPartialFillUp && f.FilledAt > prevFull.FilledAt)
+            .Where(f => f.IsPartialFillUp && f.FilledAt > (prevFull?.FilledAt ?? DateTime.MinValue))
             .Sum(f => f.LitersFilled);
 
         var totalLiters = newLiters + partialLiters;
-        var distKm = odoKm - prevFull.OdometerReading;
+        var distKm = odoKm - anchorOdometer.Value;
         if (distKm > 0)
         {
             var effLabel = Units.EfficiencyLabel(_costDistUnit);

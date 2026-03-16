@@ -76,10 +76,13 @@ else
         </div>
 
         <h6>Fuel Efficiency (@Units.EfficiencyLabel(_costDistUnit))</h6>
-        <FuelEfficiencyChart Logs="@_logs" CostDistUnit="@_costDistUnit" />
+        <FuelEfficiencyChart Logs="@_logs" CostDistUnit="@_costDistUnit" StartingOdometer="@_startingOdometer" />
 
         <h6 class="mt-3">Cost per @Units.CostDistLabel(_costDistUnit)</h6>
-        <CostPerDistanceChart Logs="@_logs" CostDistUnit="@_costDistUnit" CurrencySymbol="@_currencySymbol" />
+        <CostPerDistanceChart Logs="@_logs" CostDistUnit="@_costDistUnit" CurrencySymbol="@_currencySymbol" StartingOdometer="@_startingOdometer" />
+
+        <h6 class="mt-3">Fuel price (@_currencySymbol/@(_unit == "miles" ? "gal" : "L"))</h6>
+        <GasPriceChart Logs="@_logs" Unit="@_unit" CurrencySymbol="@_currencySymbol" />
     }
 }
 
@@ -102,6 +105,7 @@ else
     private string _costLabel = "kr/10 km";
     private string _totalCost = "—";
     private string _totalDist = "—";
+    private decimal? _startingOdometer;
 
     private record RangeOption(string Label, int Days);
     private readonly List<RangeOption> _ranges =
@@ -163,10 +167,16 @@ else
         var efficiencies = new List<decimal>();
         var costPerDists = new List<decimal>();
 
-        for (int i = 1; i < _logs.Count; i++)
+        // When showing all logs the car's starting odometer is a valid anchor for the first fill-up.
+        // For date-filtered views the first visible log may not be the car's first, so don't use it.
+        var selectedCar = _cars.FirstOrDefault(c => c.Id == _selectedCarId);
+        decimal? startingOdo = _selectedRange == 0 ? selectedCar?.StartingOdometer : null;
+        _startingOdometer = startingOdo;
+
+        for (int i = 0; i < _logs.Count; i++)
         {
             if (_logs[i].IsPartialFillUp) continue;
-            var stats = Calc.AccumulatedStats(_logs, i);
+            var stats = Calc.AccumulatedStats(_logs, i, startingOdo);
             if (stats is null) continue;
 
             // Efficiency

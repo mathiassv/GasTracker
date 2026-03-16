@@ -1,13 +1,12 @@
 @using Blazorise.Charts
-@inject FuelCalculatorService Calc
 @inject UnitConversionService Units
 
 <LineChart TItem="decimal" @ref="_chart" />
 
 @code {
     [Parameter] public List<FuelLog> Logs { get; set; } = [];
-    [Parameter] public string CostDistUnit { get; set; } = "10km";
-    [Parameter] public decimal? StartingOdometer { get; set; }
+    [Parameter] public string Unit { get; set; } = "km";
+    [Parameter] public string CurrencySymbol { get; set; } = "kr";
 
     private LineChart<decimal> _chart = null!;
     private bool _rendered;
@@ -28,14 +27,16 @@
         var points = BuildDataPoints();
         if (!points.Any()) return;
 
+        var volUnit = Unit == "miles" ? "gal" : "L";
+
         await _chart.AddLabelsDatasetsAndUpdate(
             points.Select(p => p.Label).ToList(),
             new LineChartDataset<decimal>
             {
-                Label = Units.EfficiencyLabel(CostDistUnit),
+                Label = $"{CurrencySymbol}/{volUnit}",
                 Data = points.Select(p => p.Value).ToList(),
-                BackgroundColor = "rgba(27,110,194,0.2)",
-                BorderColor = "rgba(27,110,194,1)",
+                BackgroundColor = "rgba(220,105,0,0.15)",
+                BorderColor = "rgba(220,105,0,1)",
                 Fill = true
             });
     }
@@ -43,20 +44,16 @@
     private List<(string Label, decimal Value)> BuildDataPoints()
     {
         var result = new List<(string, decimal)>();
-        var ordered = Logs.OrderBy(f => f.FilledAt).ToList();
 
-        for (int i = 0; i < ordered.Count; i++)
+        foreach (var log in Logs.OrderBy(f => f.FilledAt))
         {
-            if (ordered[i].IsPartialFillUp) continue;
-            var stats = Calc.AccumulatedStats(ordered, i, StartingOdometer);
-            if (stats is null) continue;
+            var volumeDisplay = Units.ConvertVolume(log.LitersFilled, Unit);
+            if (volumeDisplay <= 0 || log.TotalCost <= 0) continue;
 
-            decimal? value = Units.LitersPerDistUnit(stats.Value.TotalLiters, stats.Value.DistanceKm, CostDistUnit)
-                ?? Calc.MilesPerGallon(Units.KmToMiles(stats.Value.DistanceKm), Units.LitersToGallons(stats.Value.TotalLiters));
-
-            if (value.HasValue)
-                result.Add((ordered[i].FilledAt.ToLocalTime().ToString("MMM d"), Math.Round(value.Value, 2)));
+            var pricePerUnit = log.TotalCost / volumeDisplay;
+            result.Add((log.FilledAt.ToLocalTime().ToString("MMM d"), Math.Round(pricePerUnit, 2)));
         }
+
         return result;
     }
 }

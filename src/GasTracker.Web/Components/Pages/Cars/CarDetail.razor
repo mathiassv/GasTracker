@@ -158,7 +158,7 @@ else
         {
             _logs = _car.FuelLogs.OrderBy(f => f.FilledAt).ToList();
             _logsWithPrev = _logs.Select((log, i) => (log, i > 0 ? _logs[i - 1] : (FuelLog?)null)).Reverse().ToList();
-            _logStats = _logs.Select((log, i) => (log, stats: Calc.AccumulatedStats(_logs, i)))
+            _logStats = _logs.Select((log, i) => (log, stats: Calc.AccumulatedStats(_logs, i, _car.StartingOdometer)))
                              .ToDictionary(x => x.log.Id, x => x.stats);
         }
         _loading = false;
@@ -228,7 +228,7 @@ else
         {
             _logs = _car.FuelLogs.OrderBy(f => f.FilledAt).ToList();
             _logsWithPrev = _logs.Select((log, i) => (log, i > 0 ? _logs[i - 1] : (FuelLog?)null)).Reverse().ToList();
-            _logStats = _logs.Select((log, i) => (log, stats: Calc.AccumulatedStats(_logs, i)))
+            _logStats = _logs.Select((log, i) => (log, stats: Calc.AccumulatedStats(_logs, i, _car.StartingOdometer)))
                              .ToDictionary(x => x.log.Id, x => x.stats);
         }
 
@@ -254,7 +254,7 @@ else
         {
             _logs = _car.FuelLogs.OrderBy(f => f.FilledAt).ToList();
             _logsWithPrev = _logs.Select((log, i) => (log, i > 0 ? _logs[i - 1] : (FuelLog?)null)).Reverse().ToList();
-            _logStats = _logs.Select((log, i) => (log, stats: Calc.AccumulatedStats(_logs, i)))
+            _logStats = _logs.Select((log, i) => (log, stats: Calc.AccumulatedStats(_logs, i, _car.StartingOdometer)))
                              .ToDictionary(x => x.log.Id, x => x.stats);
         }
     }
