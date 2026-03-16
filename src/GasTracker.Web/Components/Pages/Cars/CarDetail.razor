@@ -67,14 +67,17 @@ else
         @foreach (var (log, prev) in _logsWithPrev)
         {
             var accStats = _logStats.GetValueOrDefault(log.Id);
-            var distKm = accStats.HasValue ? accStats.Value.DistKm : Calc.DistanceSincePrevious(log, prev);
+            var distKm = accStats.HasValue ? accStats.Value.DistanceKm : Calc.DistanceSincePrevious(log, prev);
             var displayDist = distKm.HasValue ? Units.ConvertDistance(distKm.Value, _unit) : (decimal?)null;
             var litersDisplay = Units.ConvertVolume(log.LitersFilled, _unit);
             var volUnit = _unit == "miles" ? "gal" : "L";
             var distUnit = _unit == "miles" ? "mi" : "km";
-            var effValue = accStats.HasValue ? Units.LitersPerDistUnit(accStats.Value.TotalLiters, accStats.Value.DistKm, _costDistUnit) : null;
+            var pricePerUnit = (log.LitersFilled > 0 && log.TotalCost > 0)
+                ? log.TotalCost / litersDisplay
+                : (decimal?)null;
+            var effValue = accStats.HasValue ? Units.LitersPerDistUnit(accStats.Value.TotalLiters, accStats.Value.DistanceKm, _costDistUnit) : null;
             var effMpg = (accStats.HasValue && !Units.IsMetricCostUnit(_costDistUnit))
-                ? Calc.MilesPerGallon(Units.KmToMiles(accStats.Value.DistKm), Units.LitersToGallons(accStats.Value.TotalLiters))
+                ? Calc.MilesPerGallon(Units.KmToMiles(accStats.Value.DistanceKm), Units.LitersToGallons(accStats.Value.TotalLiters))
                 : null;
             var effLabel = Units.EfficiencyLabel(_costDistUnit);
 
@@ -97,7 +100,13 @@ else
                     </div>
                 </div>
                 <div class="d-flex justify-content-between small text-muted mt-1">
-                    <span>@Fmt.Num(litersDisplay, 2) @volUnit &bull; @Fmt.Currency(log.TotalCost, _currencySymbol)</span>
+                    <span>
+                        @Fmt.Num(litersDisplay, 2) @volUnit &bull; @Fmt.Currency(log.TotalCost, _currencySymbol)
+                        @if (pricePerUnit.HasValue)
+                        {
+                            <span class="ms-1">(@Fmt.Currency(pricePerUnit.Value, _currencySymbol)/@volUnit)</span>
+                        }
+                    </span>
                     @if (displayDist.HasValue)
                     {
                         <span>@Fmt.Num(displayDist.Value, 0) @distUnit</span>
@@ -124,7 +133,7 @@ else
     private Car? _car;
     private List<FuelLog> _logs = [];
     private List<(FuelLog Log, FuelLog? Prev)> _logsWithPrev = [];
-    private Dictionary<int, (decimal DistKm, decimal TotalLiters, decimal TotalCost)?> _logStats = [];
+    private Dictionary<int, (decimal TotalLiters, decimal DistanceKm, decimal TotalCost)?> _logStats = [];
     private bool _loading = true;
     private bool _generatingDemo;
     private int _userId;
