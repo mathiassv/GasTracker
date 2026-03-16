@@ -3,6 +3,7 @@
 @attribute [Authorize]
 @inject IUnitOfWork Uow
 @inject AuthenticationStateProvider AuthState
+@inject IJSRuntime JS
 
 <PageTitle>Profile — GasTracker</PageTitle>
 
@@ -42,6 +43,15 @@ else
                 <option value="1">Per 1 unit (km or mi)</option>
                 <option value="10">Per 10 units (default)</option>
                 <option value="100">Per 100 units</option>
+            </select>
+        </div>
+
+        <div class="mb-3">
+            <label class="form-label fw-bold">Theme</label>
+            <select class="form-select" @bind="_model.Theme">
+                <option value="light">Light</option>
+                <option value="dark">Dark</option>
+                <option value="system">System default</option>
             </select>
         </div>
 
@@ -86,7 +96,8 @@ else
                 PreferredUnit = _user.PreferredUnit,
                 StatScale = _user.StatScale,
                 CurrencyCode = _user.CurrencyCode,
-                CurrencySymbol = _user.CurrencySymbol
+                CurrencySymbol = _user.CurrencySymbol,
+                Theme = _user.Theme
             };
         }
     }
@@ -100,8 +111,10 @@ else
         _user.StatScale = _model.StatScale;
         _user.CurrencyCode = _model.CurrencyCode.ToUpper();
         _user.CurrencySymbol = _model.CurrencySymbol;
+        _user.Theme = _model.Theme;
         await Uow.Users.UpdateAsync(_user);
         await Uow.SaveChangesAsync();
+        await JS.InvokeVoidAsync("gtTheme.apply", _user.Theme);
         _saving = false;
         _saved = true;
     }
@@ -119,5 +132,6 @@ else
         [System.ComponentModel.DataAnnotations.Required(ErrorMessage = "Currency symbol is required")]
         [System.ComponentModel.DataAnnotations.StringLength(5, MinimumLength = 1, ErrorMessage = "Required")]
         public string CurrencySymbol { get; set; } = "kr";
+        public string Theme { get; set; } = "light";
     }
 }

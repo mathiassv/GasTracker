@@ -2,6 +2,8 @@
 @inject NavigationManager Nav
 @inject AuthenticationStateProvider AuthStateProvider
 @inject IWebHostEnvironment Env
+@inject IJSRuntime JS
+@inject IUnitOfWork Uow
 
 <div class="gt-app">
     <!-- Top bar -->
@@ -9,6 +11,9 @@
         <span class="gt-logo fw-bold me-auto">
             <i class="fa fa-gas-pump me-2"></i>GasTracker
         </span>
+        <button class="gt-theme-toggle me-2" @onclick="ToggleThemeAsync" title="Toggle theme">
+            <i class="fa @(_isDark ? "fa-sun" : "fa-moon")"></i>
+        </button>
         <AuthorizeView>
             <Authorized>
                 <form method="post" action="/auth/logout" class="mb-0">
@@ -72,6 +77,48 @@
 </div>
 
 @code {
+    private bool _isDark;
+    private AppUser? _user;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender) return;
+
+        var auth = await AuthStateProvider.GetAuthenticationStateAsync();
+        var userIdStr = auth.User.FindFirst("app_user_id")?.Value;
+
+        if (int.TryParse(userIdStr, out var userId))
+        {
+            _user = await Uow.Users.GetByIdAsync(userId);
+            if (_user is not null)
+            {
+                await JS.InvokeVoidAsync("gtTheme.apply", _user.Theme);
+                _isDark = _user.Theme == "dark";
+                StateHasChanged();
+                return;
+            }
+        }
+
+        // Not logged in — read from localStorage
+        var stored = await JS.InvokeAsync<string>("gtTheme.get");
+        _isDark = stored == "dark";
+        StateHasChanged();
+    }
+
+    private async Task ToggleThemeAsync()
+    {
+        _isDark = !_isDark;
+        var theme = _isDark ? "dark" : "light";
+        await JS.InvokeVoidAsync("gtTheme.apply", theme);
+
+        if (_user is not null)
+        {
+            _user.Theme = theme;
+            await Uow.Users.UpdateAsync(_user);
+            await Uow.SaveChangesAsync();
+        }
+    }
+
     private string IsActive(string prefix) =>
         Nav.Uri.Contains(prefix, StringComparison.OrdinalIgnoreCase) ? "active" : "";
 }

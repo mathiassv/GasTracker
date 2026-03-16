@@ -10,6 +10,7 @@ public class AppUser
     public int StatScale { get; set; } = 10;
     public string CurrencyCode { get; set; } = "SEK";
     public string CurrencySymbol { get; set; } = "kr";
+    public string Theme { get; set; } = "light";
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public ICollection<Car> Cars { get; set; } = [];
 }
