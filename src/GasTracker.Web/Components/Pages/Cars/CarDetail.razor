@@ -66,20 +66,27 @@ else
     {
         @foreach (var (log, prev) in _logsWithPrev)
         {
-            var distKm = Calc.DistanceSincePrevious(log, prev);
+            var accStats = _logStats.GetValueOrDefault(log.Id);
+            var distKm = accStats.HasValue ? accStats.Value.DistKm : Calc.DistanceSincePrevious(log, prev);
             var displayDist = distKm.HasValue ? Units.ConvertDistance(distKm.Value, _unit) : (decimal?)null;
             var litersDisplay = Units.ConvertVolume(log.LitersFilled, _unit);
             var volUnit = _unit == "miles" ? "gal" : "L";
             var distUnit = _unit == "miles" ? "mi" : "km";
-            var effValue = distKm.HasValue ? Units.LitersPerDistUnit(log.LitersFilled, distKm.Value, _costDistUnit) : null;
-            var effMpg = (distKm.HasValue && !Units.IsMetricCostUnit(_costDistUnit))
-                ? Calc.MilesPerGallon(Units.KmToMiles(distKm.Value), Units.LitersToGallons(log.LitersFilled))
+            var effValue = accStats.HasValue ? Units.LitersPerDistUnit(accStats.Value.TotalLiters, accStats.Value.DistKm, _costDistUnit) : null;
+            var effMpg = (accStats.HasValue && !Units.IsMetricCostUnit(_costDistUnit))
+                ? Calc.MilesPerGallon(Units.KmToMiles(accStats.Value.DistKm), Units.LitersToGallons(accStats.Value.TotalLiters))
                 : null;
             var effLabel = Units.EfficiencyLabel(_costDistUnit);
 
             <div class="log-row">
                 <div class="d-flex justify-content-between align-items-center">
-                    <span class="fw-bold">@log.FilledAt.ToLocalTime().ToString("MMM d, yyyy")</span>
+                    <span class="fw-bold">
+                        @log.FilledAt.ToLocalTime().ToString("MMM d, yyyy")
+                        @if (log.IsPartialFillUp)
+                        {
+                            <span class="badge bg-warning text-dark ms-2" style="font-size:.7rem">Partial</span>
+                        }
+                    </span>
                     <div class="d-flex gap-1">
                         <a href="/cars/@CarId/logs/@log.Id/edit" class="btn btn-sm btn-outline-secondary" title="Edit">
                             <i class="fa fa-pen"></i>
@@ -117,6 +124,7 @@ else
     private Car? _car;
     private List<FuelLog> _logs = [];
     private List<(FuelLog Log, FuelLog? Prev)> _logsWithPrev = [];
+    private Dictionary<int, (decimal DistKm, decimal TotalLiters, decimal TotalCost)?> _logStats = [];
     private bool _loading = true;
     private bool _generatingDemo;
     private int _userId;
@@ -141,6 +149,8 @@ else
         {
             _logs = _car.FuelLogs.OrderBy(f => f.FilledAt).ToList();
             _logsWithPrev = _logs.Select((log, i) => (log, i > 0 ? _logs[i - 1] : (FuelLog?)null)).Reverse().ToList();
+            _logStats = _logs.Select((log, i) => (log, stats: Calc.AccumulatedStats(_logs, i)))
+                             .ToDictionary(x => x.log.Id, x => x.stats);
         }
         _loading = false;
     }
@@ -159,6 +169,7 @@ else
 
         // Simulate a slowly-drifting fuel price in SEK (15–19 kr/L)
         decimal pricePerLiter = (decimal)(15.0 + rng.NextDouble() * 4.0);
+        bool lastWasPartial = false;
 
         for (int i = 0; i < count; i++)
         {
@@ -171,11 +182,21 @@ else
 
             // 7.5–11.5 L/100km consumption
             var consumptionPer100 = (decimal)(7.5 + rng.NextDouble() * 4.0);
-            var liters = Math.Round(distKm * consumptionPer100 / 100m, 2);
+            var fullLiters = Math.Round(distKm * consumptionPer100 / 100m, 2);
 
             // Price drifts ±0.05 each fill
             pricePerLiter += (decimal)((rng.NextDouble() - 0.5) * 0.10);
             pricePerLiter = Math.Max(15.0m, Math.Min(19.0m, pricePerLiter));
+
+            // ~25% chance of a partial fill-up; never two in a row
+            var isPartial = !lastWasPartial && rng.NextDouble() < 0.25;
+            lastWasPartial = isPartial;
+
+            // Partial: fill only 35–65% of what was consumed
+            var liters = isPartial
+                ? Math.Round(fullLiters * (decimal)(0.35 + rng.NextDouble() * 0.30), 2)
+                : fullLiters;
+
             var cost = Math.Round(liters * pricePerLiter, 2);
 
             await Uow.FuelLogs.AddAsync(new FuelLog
@@ -184,6 +205,7 @@ else
                 OdometerReading = Math.Round(lastOdo, 1),
                 LitersFilled = liters,
                 TotalCost = cost,
+                IsPartialFillUp = isPartial,
                 FilledAt = lastDate < DateTime.UtcNow ? lastDate : DateTime.UtcNow.AddMinutes(-1),
                 Notes = i == 0 ? "Demo data" : null
             });
@@ -197,6 +219,8 @@ else
         {
             _logs = _car.FuelLogs.OrderBy(f => f.FilledAt).ToList();
             _logsWithPrev = _logs.Select((log, i) => (log, i > 0 ? _logs[i - 1] : (FuelLog?)null)).Reverse().ToList();
+            _logStats = _logs.Select((log, i) => (log, stats: Calc.AccumulatedStats(_logs, i)))
+                             .ToDictionary(x => x.log.Id, x => x.stats);
         }
 
         _generatingDemo = false;
@@ -221,6 +245,8 @@ else
         {
             _logs = _car.FuelLogs.OrderBy(f => f.FilledAt).ToList();
             _logsWithPrev = _logs.Select((log, i) => (log, i > 0 ? _logs[i - 1] : (FuelLog?)null)).Reverse().ToList();
+            _logStats = _logs.Select((log, i) => (log, stats: Calc.AccumulatedStats(_logs, i)))
+                             .ToDictionary(x => x.log.Id, x => x.stats);
         }
     }
 }

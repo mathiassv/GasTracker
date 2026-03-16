@@ -29,6 +29,11 @@ else
         <ValidationSummary />
 
         <div class="mb-3">
+            <label class="form-label fw-bold">Date &amp; time</label>
+            <InputDate Type="InputDateType.DateTimeLocal" class="form-control" @bind-Value="_model.FilledAt" />
+        </div>
+
+        <div class="mb-3">
             <label class="form-label fw-bold">Odometer reading (@_distUnit)</label>
             <InputNumber class="form-control" @bind-Value="_model.OdometerDisplay" />
             <ValidationMessage For="() => _model.OdometerDisplay" />
@@ -40,15 +45,15 @@ else
             <ValidationMessage For="() => _model.VolumeDisplay" />
         </div>
 
+        <div class="mb-3 form-check">
+            <InputCheckbox class="form-check-input" id="partialFillUp" @bind-Value="_model.IsPartialFillUp" />
+            <label class="form-check-label" for="partialFillUp">Partial fill-up (tank not filled to full)</label>
+        </div>
+
         <div class="mb-3">
             <label class="form-label fw-bold">Total cost (@_currencyCode)</label>
             <InputNumber class="form-control" @bind-Value="_model.TotalCost" />
             <ValidationMessage For="() => _model.TotalCost" />
-        </div>
-
-        <div class="mb-3">
-            <label class="form-label fw-bold">Date &amp; time</label>
-            <InputDate Type="InputDateType.DateTimeLocal" class="form-control" @bind-Value="_model.FilledAt" />
         </div>
 
         <div class="mb-3">
@@ -106,7 +111,8 @@ else
                 VolumeDisplay = Math.Round(Units.ConvertVolume(_log.LitersFilled, _unit), 3),
                 TotalCost = _log.TotalCost,
                 FilledAt = _log.FilledAt.ToLocalTime(),
-                Notes = _log.Notes
+                Notes = _log.Notes,
+                IsPartialFillUp = _log.IsPartialFillUp
             };
         }
         _loading = false;
@@ -132,6 +138,7 @@ else
         _log.TotalCost = _model.TotalCost;
         _log.FilledAt = _model.FilledAt.ToUniversalTime();
         _log.Notes = string.IsNullOrWhiteSpace(_model.Notes) ? null : _model.Notes;
+        _log.IsPartialFillUp = _model.IsPartialFillUp;
 
         await Uow.FuelLogs.UpdateAsync(_log);
         await Uow.SaveChangesAsync();
@@ -151,5 +158,6 @@ else
 
         public DateTime FilledAt { get; set; } = DateTime.Now;
         public string? Notes { get; set; }
+        public bool IsPartialFillUp { get; set; }
     }
 }

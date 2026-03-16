@@ -11,6 +11,9 @@ public class FuelCalculatorServiceTests
     private static FuelLog MakeLog(decimal odometer, decimal liters, decimal cost, DateTime? filledAt = null) =>
         new() { OdometerReading = odometer, LitersFilled = liters, TotalCost = cost, FilledAt = filledAt ?? DateTime.UtcNow };
 
+    private static FuelLog MakePartial(decimal odometer, decimal liters, decimal cost) =>
+        new() { OdometerReading = odometer, LitersFilled = liters, TotalCost = cost, FilledAt = DateTime.UtcNow, IsPartialFillUp = true };
+
     [Fact]
     public void DistanceSincePrevious_NoPrevious_ReturnsNull()
     {
@@ -94,5 +97,101 @@ public class FuelCalculatorServiceTests
         // $30 over 300 miles = $0.10/mile
         var result = Sut().CostPerMile(30, 300);
         Assert.Equal(0.1m, result);
+    }
+
+    // --- AccumulatedStats ---
+
+    [Fact]
+    public void AccumulatedStats_PartialFillUp_ReturnsNull()
+    {
+        var logs = new List<FuelLog>
+        {
+            MakeLog(1000, 40, 60),
+            MakePartial(1400, 10, 15)
+        };
+        Assert.Null(Sut().AccumulatedStats(logs, 1));
+    }
+
+    [Fact]
+    public void AccumulatedStats_FirstLog_ReturnsNull()
+    {
+        var logs = new List<FuelLog> { MakeLog(1000, 40, 60) };
+        Assert.Null(Sut().AccumulatedStats(logs, 0));
+    }
+
+    [Fact]
+    public void AccumulatedStats_AllPrecedingArePartials_ReturnsNull()
+    {
+        var logs = new List<FuelLog>
+        {
+            MakePartial(1000, 10, 15),
+            MakeLog(1400, 40, 60)
+        };
+        Assert.Null(Sut().AccumulatedStats(logs, 1));
+    }
+
+    [Fact]
+    public void AccumulatedStats_TwoConsecutiveFullFillUps_ReturnsSingleLogStats()
+    {
+        var logs = new List<FuelLog>
+        {
+            MakeLog(1000, 40, 60),
+            MakeLog(1400, 35, 52)
+        };
+        var result = Sut().AccumulatedStats(logs, 1);
+        Assert.NotNull(result);
+        Assert.Equal(400m, result.Value.DistanceKm);
+        Assert.Equal(35m, result.Value.TotalLiters);
+        Assert.Equal(52m, result.Value.TotalCost);
+    }
+
+    [Fact]
+    public void AccumulatedStats_OnePartialBeforeFullFillUp_IncludesPartialFuelAndCost()
+    {
+        var logs = new List<FuelLog>
+        {
+            MakeLog(1000, 40, 60),                              // full
+            MakePartial(1200, 10, 15),                          // partial
+            MakeLog(1400, 35, 52)                               // full
+        };
+        var result = Sut().AccumulatedStats(logs, 2);
+        Assert.NotNull(result);
+        Assert.Equal(400m, result.Value.DistanceKm);   // 1400 - 1000
+        Assert.Equal(45m, result.Value.TotalLiters);   // 10 + 35
+        Assert.Equal(67m, result.Value.TotalCost);     // 15 + 52
+    }
+
+    [Fact]
+    public void AccumulatedStats_TwoPartialsBeforeFullFillUp_AccumulatesAllFuel()
+    {
+        var logs = new List<FuelLog>
+        {
+            MakeLog(1000, 40, 60),
+            MakePartial(1100, 8,  12),
+            MakePartial(1250, 12, 18),
+            MakeLog(1400, 30, 45)
+        };
+        var result = Sut().AccumulatedStats(logs, 3);
+        Assert.NotNull(result);
+        Assert.Equal(400m, result.Value.DistanceKm);   // 1400 - 1000
+        Assert.Equal(50m, result.Value.TotalLiters);   // 8 + 12 + 30
+        Assert.Equal(75m, result.Value.TotalCost);     // 12 + 18 + 45
+    }
+
+    [Fact]
+    public void AccumulatedStats_IntermediateFullFillUp_OnlyCountsSinceLastFull()
+    {
+        var logs = new List<FuelLog>
+        {
+            MakeLog(1000, 40, 60),
+            MakeLog(1400, 35, 52),                              // full — anchor
+            MakePartial(1550, 10, 15),
+            MakeLog(1700, 25, 37)                               // full — evaluated
+        };
+        var result = Sut().AccumulatedStats(logs, 3);
+        Assert.NotNull(result);
+        Assert.Equal(300m, result.Value.DistanceKm);   // 1700 - 1400
+        Assert.Equal(35m, result.Value.TotalLiters);   // 10 + 25
+        Assert.Equal(52m, result.Value.TotalCost);     // 15 + 37
     }
 }

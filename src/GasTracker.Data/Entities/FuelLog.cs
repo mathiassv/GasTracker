@@ -8,6 +8,7 @@ public class FuelLog
     public decimal LitersFilled { get; set; }
     public decimal TotalCost { get; set; }
     public DateTime FilledAt { get; set; } = DateTime.UtcNow;
+    public bool IsPartialFillUp { get; set; }
     public string? Notes { get; set; }
     public Car Car { get; set; } = null!;
 }

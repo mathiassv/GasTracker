@@ -165,18 +165,17 @@ else
 
         for (int i = 1; i < _logs.Count; i++)
         {
-            var curr = _logs[i];
-            var prev = _logs[i - 1];
-            var distKm = curr.OdometerReading - prev.OdometerReading;
-            if (distKm <= 0) continue;
+            if (_logs[i].IsPartialFillUp) continue;
+            var stats = Calc.AccumulatedStats(_logs, i);
+            if (stats is null) continue;
 
             // Efficiency
-            var eff = Units.LitersPerDistUnit(curr.LitersFilled, distKm, _costDistUnit)
-                ?? Calc.MilesPerGallon(Units.KmToMiles(distKm), Units.LitersToGallons(curr.LitersFilled));
+            var eff = Units.LitersPerDistUnit(stats.Value.TotalLiters, stats.Value.DistanceKm, _costDistUnit)
+                ?? Calc.MilesPerGallon(Units.KmToMiles(stats.Value.DistanceKm), Units.LitersToGallons(stats.Value.TotalLiters));
             if (eff.HasValue) efficiencies.Add(eff.Value);
 
             // Cost per configured distance unit
-            var cpk = Calc.CostPerKm(curr.TotalCost, distKm);
+            var cpk = Calc.CostPerKm(stats.Value.TotalCost, stats.Value.DistanceKm);
             if (cpk.HasValue) costPerDists.Add(Units.CostPerDistUnit(cpk.Value, _costDistUnit));
         }
 

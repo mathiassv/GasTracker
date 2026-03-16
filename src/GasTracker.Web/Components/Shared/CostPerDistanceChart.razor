@@ -55,15 +55,14 @@
 
         for (int i = 1; i < ordered.Count; i++)
         {
-            var curr = ordered[i];
-            var prev = ordered[i - 1];
-            var distKm = curr.OdometerReading - prev.OdometerReading;
-            if (distKm <= 0) continue;
+            if (ordered[i].IsPartialFillUp) continue;
+            var stats = Calc.AccumulatedStats(ordered, i);
+            if (stats is null) continue;
 
-            var cpk = Calc.CostPerKm(curr.TotalCost, distKm);
+            var cpk = Calc.CostPerKm(stats.Value.TotalCost, stats.Value.DistanceKm);
             if (!cpk.HasValue) continue;
             var value = Units.CostPerDistUnit(cpk.Value, CostDistUnit);
-            result.Add((curr.FilledAt.ToLocalTime().ToString("MMM d"), Math.Round(value, 2)));
+            result.Add((ordered[i].FilledAt.ToLocalTime().ToString("MMM d"), Math.Round(value, 2)));
         }
         return result;
     }

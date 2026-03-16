@@ -30,6 +30,11 @@ else
         <ValidationSummary />
 
         <div class="mb-3">
+            <label class="form-label fw-bold">Date &amp; time</label>
+            <InputDate Type="InputDateType.DateTimeLocal" class="form-control" @bind-Value="_model.FilledAt" />
+        </div>
+
+        <div class="mb-3">
             <label class="form-label fw-bold">Odometer reading (@_distUnit) <span class="text-danger">*</span></label>
             <InputNumber class="form-control" @bind-Value="_model.OdometerDisplay" @oninput="UpdatePreview" />
             <ValidationMessage For="() => _model.OdometerDisplay" />
@@ -45,15 +50,15 @@ else
             <ValidationMessage For="() => _model.VolumeDisplay" />
         </div>
 
+        <div class="mb-3 form-check">
+            <InputCheckbox class="form-check-input" id="partialFillUp" @bind-Value="_model.IsPartialFillUp" @oninput="UpdatePreview" />
+            <label class="form-check-label" for="partialFillUp">Partial fill-up (tank not filled to full)</label>
+        </div>
+
         <div class="mb-3">
             <label class="form-label fw-bold">Total cost (@_currencyCode) <span class="text-danger">*</span></label>
             <InputNumber class="form-control" @bind-Value="_model.TotalCost" @oninput="UpdatePreview" />
             <ValidationMessage For="() => _model.TotalCost" />
-        </div>
-
-        <div class="mb-3">
-            <label class="form-label fw-bold">Date &amp; time</label>
-            <InputDate Type="InputDateType.DateTimeLocal" class="form-control" @bind-Value="_model.FilledAt" />
         </div>
 
         <div class="mb-3">
@@ -125,21 +130,33 @@ else
 
     private void RecalculatePreview()
     {
-        if (_model!.OdometerDisplay <= 0 || _model!.VolumeDisplay <= 0) { _preview = null; return; }
+        if (_model!.IsPartialFillUp || _model!.OdometerDisplay <= 0 || _model!.VolumeDisplay <= 0)
+        {
+            _preview = null;
+            return;
+        }
 
         var odoKm = Units.ConvertDistanceToKm(_model!.OdometerDisplay, _unit);
-        var liters = Units.ConvertVolumeToLiters(_model!.VolumeDisplay, _unit);
+        var newLiters = Units.ConvertVolumeToLiters(_model!.VolumeDisplay, _unit);
 
-        if (_prevLog is not null)
+        // Find previous full fill-up as the baseline
+        var allLogs = _car?.FuelLogs.OrderBy(f => f.FilledAt).ToList() ?? [];
+        var prevFull = allLogs.LastOrDefault(f => !f.IsPartialFillUp);
+        if (prevFull is null) { _preview = null; return; }
+
+        // Include any partial fill-ups logged since the last full fill-up
+        var partialLiters = allLogs
+            .Where(f => f.IsPartialFillUp && f.FilledAt > prevFull.FilledAt)
+            .Sum(f => f.LitersFilled);
+
+        var totalLiters = newLiters + partialLiters;
+        var distKm = odoKm - prevFull.OdometerReading;
+        if (distKm > 0)
         {
-            var distKm = odoKm - _prevLog.OdometerReading;
-            if (distKm > 0)
-            {
-                var effLabel = Units.EfficiencyLabel(_costDistUnit);
-                var eff = Units.LitersPerDistUnit(liters, distKm, _costDistUnit)
-                    ?? Calc.MilesPerGallon(Units.KmToMiles(distKm), Units.LitersToGallons(liters));
-                _preview = eff.HasValue ? $"{Fmt.Num(eff.Value, 2)} {effLabel}" : null;
-            }
+            var effLabel = Units.EfficiencyLabel(_costDistUnit);
+            var eff = Units.LitersPerDistUnit(totalLiters, distKm, _costDistUnit)
+                ?? Calc.MilesPerGallon(Units.KmToMiles(distKm), Units.LitersToGallons(totalLiters));
+            _preview = eff.HasValue ? $"{Fmt.Num(eff.Value, 2)} {effLabel}" : null;
         }
     }
 
@@ -176,7 +193,8 @@ else
             LitersFilled = liters,
             TotalCost = _model.TotalCost,
             FilledAt = _model.FilledAt.ToUniversalTime(),
-            Notes = string.IsNullOrWhiteSpace(_model.Notes) ? null : _model.Notes
+            Notes = string.IsNullOrWhiteSpace(_model.Notes) ? null : _model.Notes,
+            IsPartialFillUp = _model.IsPartialFillUp
         };
         await Uow.FuelLogs.AddAsync(log);
         await Uow.SaveChangesAsync();
@@ -196,5 +214,6 @@ else
 
         public DateTime FilledAt { get; set; } = DateTime.Now;
         public string? Notes { get; set; }
+        public bool IsPartialFillUp { get; set; }
     }
 }

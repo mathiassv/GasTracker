@@ -46,16 +46,15 @@
 
         for (int i = 1; i < ordered.Count; i++)
         {
-            var curr = ordered[i];
-            var prev = ordered[i - 1];
-            var distKm = curr.OdometerReading - prev.OdometerReading;
-            if (distKm <= 0) continue;
+            if (ordered[i].IsPartialFillUp) continue;
+            var stats = Calc.AccumulatedStats(ordered, i);
+            if (stats is null) continue;
 
-            decimal? value = Units.LitersPerDistUnit(curr.LitersFilled, distKm, CostDistUnit)
-                ?? Calc.MilesPerGallon(Units.KmToMiles(distKm), Units.LitersToGallons(curr.LitersFilled));
+            decimal? value = Units.LitersPerDistUnit(stats.Value.TotalLiters, stats.Value.DistanceKm, CostDistUnit)
+                ?? Calc.MilesPerGallon(Units.KmToMiles(stats.Value.DistanceKm), Units.LitersToGallons(stats.Value.TotalLiters));
 
             if (value.HasValue)
-                result.Add((curr.FilledAt.ToLocalTime().ToString("MMM d"), Math.Round(value.Value, 2)));
+                result.Add((ordered[i].FilledAt.ToLocalTime().ToString("MMM d"), Math.Round(value.Value, 2)));
         }
         return result;
     }
