@@ -2,8 +2,9 @@
 @layout MainLayout
 @attribute [Authorize]
 @inherits UnitOfWorkComponentBase
-@inject AuthenticationStateProvider AuthState
+@inject CurrentUserService CurrentUser
 @inject NavigationManager Nav
+@inject UnitConversionService Units
 
 <PageTitle>Edit Car — GasTracker</PageTitle>
 
@@ -38,7 +39,7 @@ else
         </div>
 
         <div class="mb-3">
-            <label class="form-label fw-bold">Starting odometer (@_unit)</label>
+            <label class="form-label fw-bold">Starting odometer (@_prefs.DistUnit)</label>
             <InputNumber class="form-control" @bind-Value="_model.StartingOdometerDisplay" />
             <ValidationMessage For="() => _model.StartingOdometerDisplay" />
         </div>
@@ -50,31 +51,27 @@ else
 }
 
 @code {
+    private UserPreferences _prefs = UserPreferences.Default;
     [Parameter] public int CarId { get; set; }
 
     private Car? _car;
     private bool _loading = true;
     private bool _saving;
-    private string _unit = "km";
-    private int _userId;
     private CarFormModel _model = new();
 
     protected override async Task OnInitializedAsync()
     {
-        var auth = await AuthState.GetAuthenticationStateAsync();
-        _userId = int.Parse(auth.User.FindFirst("app_user_id")?.Value ?? "0");
-        var user = await Uow.Users.GetByIdAsync(_userId);
-        _unit = user?.PreferredUnit ?? "km";
+        _prefs = await CurrentUser.GetPreferencesAsync(Uow);
 
         _car = await Uow.Cars.GetByIdAsync(CarId);
-        if (_car is null || _car.AppUserId != _userId)
+        if (_car is null || _car.AppUserId != _prefs.UserId)
         {
             _car = null;
             _loading = false;
             return;
         }
 
-        var displayOdo = _unit == "miles" ? _car.StartingOdometer / 1.60934m : _car.StartingOdometer;
+        var displayOdo = Units.ConvertDistance(_car.StartingOdometer, _prefs.Unit);
         _model = new CarFormModel
         {
             Name = _car.Name,
@@ -88,9 +85,7 @@ else
     {
         if (_car is null) return;
         _saving = true;
-        var odoKm = _unit == "miles"
-            ? _model.StartingOdometerDisplay * 1.60934m
-            : _model.StartingOdometerDisplay;
+        var odoKm = Units.ConvertDistanceToKm(_model.StartingOdometerDisplay, _prefs.Unit);
 
         _car.Name = _model.Name;
         _car.LicensePlate = string.IsNullOrWhiteSpace(_model.LicensePlate) ? null : _model.LicensePlate;

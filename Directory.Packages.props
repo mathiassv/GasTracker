@@ -1,0 +1,26 @@
+<Project>
+  <!-- Central package management: all versions pinned here for reproducible builds. -->
+  <PropertyGroup>
+    <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageVersion Include="Blazorise" Version="1.7.7" />
+    <PackageVersion Include="Blazorise.Bootstrap5" Version="1.7.7" />
+    <PackageVersion Include="Blazorise.Charts" Version="1.7.7" />
+    <PackageVersion Include="Blazorise.Icons.FontAwesome" Version="1.7.7" />
+    <PackageVersion Include="Microsoft.AspNetCore.Authentication.Google" Version="10.0.12" />
+    <PackageVersion Include="Microsoft.EntityFrameworkCore" Version="10.0.12" />
+    <PackageVersion Include="Microsoft.EntityFrameworkCore.Design" Version="10.0.12" />
+    <PackageVersion Include="Microsoft.EntityFrameworkCore.InMemory" Version="10.0.12" />
+    <PackageVersion Include="Microsoft.EntityFrameworkCore.Sqlite" Version="10.0.12" />
+  </ItemGroup>
+
+  <ItemGroup Label="Test">
+    <PackageVersion Include="coverlet.collector" Version="8.0.0" />
+    <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="18.3.0" />
+    <PackageVersion Include="Moq" Version="4.20.72" />
+    <PackageVersion Include="xunit" Version="2.9.3" />
+    <PackageVersion Include="xunit.runner.visualstudio" Version="3.1.5" />
+  </ItemGroup>
+</Project>

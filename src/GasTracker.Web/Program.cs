@@ -32,6 +32,8 @@ builder.Services.AddSingleton<IUnitOfWorkFactory, UnitOfWorkFactory>();
 // App services
 builder.Services.AddScoped<UserService>();
 builder.Services.AddScoped<FuelCalculatorService>();
+builder.Services.AddScoped<CurrentUserService>();
+builder.Services.AddScoped<DataTransferService>();
 builder.Services.AddSingleton<UnitConversionService>();
 builder.Services.AddSingleton<DisplayFormatter>();
 
@@ -109,6 +111,8 @@ builder.Services.AddRateLimiter(options =>
     options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
 });
 
+builder.Services.AddHealthChecks();
+
 // Blazor
 builder.Services.AddRazorComponents()
     .AddInteractiveServerComponents();
@@ -140,12 +144,26 @@ if (!app.Environment.IsDevelopment())
     app.UseHsts();
 }
 
-// Security headers
+// Security headers.
+// CSP: 'unsafe-inline' scripts are needed for Blazor's inline <ImportMap /> (its content changes per
+// build) and the small inline scripts in App.razor; the policy still pins every external origin.
+// connect-src lists the CDNs because the service worker fetches them to pre-cache.
+const string ContentSecurityPolicy =
+    "default-src 'self'; " +
+    "script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; " +
+    "style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com; " +
+    "font-src 'self' data: https://cdnjs.cloudflare.com; " +
+    "img-src 'self' data:; " +
+    "connect-src 'self' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com; " +
+    "frame-ancestors 'none'; " +
+    "object-src 'none'; " +
+    "base-uri 'self'; " +
+    "form-action 'self'";
 app.Use(async (ctx, next) =>
 {
     ctx.Response.Headers["X-Content-Type-Options"] = "nosniff";
     ctx.Response.Headers["X-Frame-Options"] = "DENY";
-    ctx.Response.Headers["X-XSS-Protection"] = "1; mode=block";
+    ctx.Response.Headers.ContentSecurityPolicy = ContentSecurityPolicy;
     ctx.Response.Headers["Referrer-Policy"] = "strict-origin-when-cross-origin";
     ctx.Response.Headers["Permissions-Policy"] = "geolocation=(), microphone=(), camera=()";
     await next();
@@ -198,6 +216,8 @@ if (app.Environment.IsDevelopment())
         ctx.Response.Redirect("/");
     });
 }
+
+app.MapHealthChecks("/healthz");
 
 app.MapStaticAssets();
 app.MapRazorComponents<App>()

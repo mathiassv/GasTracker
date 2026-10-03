@@ -2,7 +2,7 @@
 @layout MainLayout
 @attribute [Authorize]
 @inherits UnitOfWorkComponentBase
-@inject AuthenticationStateProvider AuthState
+@inject CurrentUserService CurrentUser
 @inject NavigationManager Nav
 @inject FuelCalculatorService Calc
 @inject UnitConversionService Units
@@ -31,21 +31,21 @@ else
 
         <div class="mb-3">
             <label class="form-label fw-bold">Date &amp; time</label>
-            <InputDate Type="InputDateType.DateTimeLocal" class="form-control" @bind-Value="_model.FilledAt" />
+            <InputDate Type="InputDateType.DateTimeLocal" class="form-control" @bind-Value="_model!.FilledAt" />
         </div>
 
         <div class="mb-3">
-            <label class="form-label fw-bold">Odometer reading (@_distUnit) <span class="text-danger">*</span></label>
+            <label class="form-label fw-bold">Odometer reading (@_prefs.DistUnit) <span class="text-danger">*</span></label>
             <InputNumber class="form-control" @bind-Value="_model.OdometerDisplay" @oninput="UpdatePreview" />
             <ValidationMessage For="() => _model.OdometerDisplay" />
             @if (_prevLog is not null)
             {
-                <div class="form-text">Last reading: @Fmt.Num(Units.ConvertDistance(_prevLog.OdometerReading, _unit), 0) @_distUnit</div>
+                <div class="form-text">Last reading: @Fmt.Num(Units.ConvertDistance(_prevLog.OdometerReading, _prefs.Unit), 0) @_prefs.DistUnit</div>
             }
         </div>
 
         <div class="mb-3">
-            <label class="form-label fw-bold">@_volUnit filled <span class="text-danger">*</span></label>
+            <label class="form-label fw-bold">@_prefs.VolumeLabel filled <span class="text-danger">*</span></label>
             <InputNumber class="form-control" @bind-Value="_model.VolumeDisplay" @oninput="UpdatePreview" />
             <ValidationMessage For="() => _model.VolumeDisplay" />
         </div>
@@ -56,7 +56,7 @@ else
         </div>
 
         <div class="mb-3">
-            <label class="form-label fw-bold">Total cost (@_currencyCode) <span class="text-danger">*</span></label>
+            <label class="form-label fw-bold">Total cost (@_prefs.CurrencyCode) <span class="text-danger">*</span></label>
             <InputNumber class="form-control" @bind-Value="_model.TotalCost" @oninput="UpdatePreview" />
             <ValidationMessage For="() => _model.TotalCost" />
         </div>
@@ -86,6 +86,7 @@ else
 }
 
 @code {
+    private UserPreferences _prefs = UserPreferences.Default;
     [Parameter] public int CarId { get; set; }
 
     private Car? _car;
@@ -94,32 +95,15 @@ else
     private FuelLogFormModel? _model { get; set; }
     private bool _loading = true;
     private bool _saving;
-    private string _unit = "km";
-    private string _distUnit = "km";
-    private string _volUnit = "Liters";
-    private string _currencyCode = "SEK";
-    private string _currencySymbol = "kr";
-    private int _statScale = 10;
-    private string _costDistUnit = "10km";
     private string? _preview;
     private string? _validationError;
-    private int _userId;
 
     protected override async Task OnInitializedAsync()
     {
         _model ??= new() { FilledAt = DateTime.Now };
-        var auth = await AuthState.GetAuthenticationStateAsync();
-        _userId = int.Parse(auth.User.FindFirst("app_user_id")?.Value ?? "0");
-        var user = await Uow.Users.GetByIdAsync(_userId);
-        _unit = user?.PreferredUnit ?? "km";
-        _distUnit = _unit == "miles" ? "mi" : "km";
-        _volUnit = _unit == "miles" ? "Gallons" : "Liters";
-        _currencyCode = user?.CurrencyCode ?? "SEK";
-        _currencySymbol = user?.CurrencySymbol ?? "kr";
-        _statScale = user?.StatScale ?? 10;
-        _costDistUnit = Units.BuildCostDistUnit(_unit, _statScale);
+        _prefs = await CurrentUser.GetPreferencesAsync(Uow);
 
-        _car = await Uow.Cars.GetWithFuelLogsAsync(CarId, _userId);
+        _car = await Uow.Cars.GetWithFuelLogsAsync(CarId, _prefs.UserId);
         if (_car is not null)
             _prevLog = _car.FuelLogs.OrderByDescending(f => f.FilledAt).FirstOrDefault();
 
@@ -136,8 +120,8 @@ else
             return;
         }
 
-        var odoKm = Units.ConvertDistanceToKm(_model!.OdometerDisplay, _unit);
-        var newLiters = Units.ConvertVolumeToLiters(_model!.VolumeDisplay, _unit);
+        var odoKm = Units.ConvertDistanceToKm(_model!.OdometerDisplay, _prefs.Unit);
+        var newLiters = Units.ConvertVolumeToLiters(_model!.VolumeDisplay, _prefs.Unit);
         var filledAtUtc = _model!.FilledAt.ToUniversalTime();
 
         if (_car is null || OdometerError(odoKm, filledAtUtc) is not null)
@@ -156,8 +140,8 @@ else
             return;
         }
 
-        var effLabel = Units.EfficiencyLabel(_costDistUnit);
-        var eff = Units.LitersPerDistUnit(st.TotalLiters, st.DistanceKm, _costDistUnit)
+        var effLabel = Units.EfficiencyLabel(_prefs.CostDistUnit);
+        var eff = Units.LitersPerDistUnit(st.TotalLiters, st.DistanceKm, _prefs.CostDistUnit)
             ?? Calc.MilesPerGallon(Units.KmToMiles(st.DistanceKm), Units.LitersToGallons(st.TotalLiters));
         _preview = eff.HasValue ? $"{Fmt.Num(eff.Value, 2)} {effLabel}" : null;
     }
@@ -167,9 +151,9 @@ else
     {
         var (minKm, maxKm) = Calc.OdometerBounds(_car!.FuelLogs, _car.StartingOdometer, filledAtUtc);
         if (odoKm <= minKm)
-            return $"Odometer must be greater than {Fmt.Num(Units.ConvertDistance(minKm, _unit), 0)} {_distUnit} (the previous reading).";
+            return $"Odometer must be greater than {Fmt.Num(Units.ConvertDistance(minKm, _prefs.Unit), 0)} {_prefs.DistUnit} (the previous reading).";
         if (maxKm is { } max && odoKm >= max)
-            return $"Odometer must be less than {Fmt.Num(Units.ConvertDistance(max, _unit), 0)} {_distUnit} (the next fill-up's reading).";
+            return $"Odometer must be less than {Fmt.Num(Units.ConvertDistance(max, _prefs.Unit), 0)} {_prefs.DistUnit} (the next fill-up's reading).";
         return null;
     }
 
@@ -178,8 +162,8 @@ else
         _validationError = null;
         if (_car is null) return;
 
-        var odoKm = Units.ConvertDistanceToKm(_model!.OdometerDisplay, _unit);
-        var liters = Units.ConvertVolumeToLiters(_model!.VolumeDisplay, _unit);
+        var odoKm = Units.ConvertDistanceToKm(_model!.OdometerDisplay, _prefs.Unit);
+        var liters = Units.ConvertVolumeToLiters(_model!.VolumeDisplay, _prefs.Unit);
 
         _validationError = OdometerError(odoKm, _model.FilledAt.ToUniversalTime());
         if (_validationError is not null) return;

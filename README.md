@@ -104,7 +104,9 @@ Before going live, add your production domain to the authorised redirect URIs in
 https://yourdomain.com/signin-google
 ```
 
-The SQLite database is persisted in a Docker volume (`gastracker-data`) and survives container restarts and rebuilds. Migrations run automatically on startup — no manual DB steps needed.
+The SQLite database and the ASP.NET Data Protection keys (`keys/`, used to sign login cookies) are stored in the bind-mounted `/var/docker/GasTracker/Data` directory, so they survive container restarts and rebuilds. Migrations run automatically on startup — no manual DB steps needed. The container reports its health via `GET /healthz`.
+
+The app runs as the non-root user `app` (UID 1654). On startup, `docker-entrypoint.sh` briefly runs as root to `chown` the mounted data directory to that user, then drops privileges — so a root-owned host directory works without manual steps.
 
 ### Environment variables
 

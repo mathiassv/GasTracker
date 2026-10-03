@@ -2,7 +2,8 @@
 @layout MainLayout
 @attribute [Authorize]
 @inherits UnitOfWorkComponentBase
-@inject AuthenticationStateProvider AuthState
+@inject CurrentUserService CurrentUser
+@inject UnitConversionService Units
 @inject NavigationManager Nav
 
 <PageTitle>Add Car — GasTracker</PageTitle>
@@ -18,7 +19,7 @@
 
     <div class="mb-3">
         <label class="form-label fw-bold">Name <span class="text-danger">*</span></label>
-        <InputText class="form-control" @bind-Value="_model.Name" placeholder="e.g. 2019 Toyota Corolla" maxlength="100" />
+        <InputText class="form-control" @bind-Value="_model!.Name" placeholder="e.g. 2019 Toyota Corolla" maxlength="100" />
         <ValidationMessage For="() => _model.Name" />
     </div>
 
@@ -28,7 +29,7 @@
     </div>
 
     <div class="mb-3">
-        <label class="form-label fw-bold">Starting odometer (@_unit)</label>
+        <label class="form-label fw-bold">Starting odometer (@_prefs.DistUnit)</label>
         <InputNumber class="form-control" @bind-Value="_model.StartingOdometerDisplay" />
         <ValidationMessage For="() => _model.StartingOdometerDisplay" />
         <div class="form-text">Enter your current odometer reading.</div>
@@ -43,28 +44,22 @@
     [SupplyParameterFromForm(FormName = "add-car")]
     private CarFormModel? _model { get; set; }
     private bool _saving;
-    private string _unit = "km";
-    private AppUser? _currentUser;
+    private UserPreferences _prefs = UserPreferences.Default;
 
     protected override async Task OnInitializedAsync()
     {
         _model ??= new();
-        var auth = await AuthState.GetAuthenticationStateAsync();
-        var userId = int.Parse(auth.User.FindFirst("app_user_id")?.Value ?? "0");
-        _currentUser = await Uow.Users.GetByIdAsync(userId);
-        _unit = _currentUser?.PreferredUnit ?? "km";
+        _prefs = await CurrentUser.GetPreferencesAsync(Uow);
     }
 
     private async Task SubmitAsync()
     {
         _saving = true;
-        var odoKm = _unit == "miles"
-            ? _model!.StartingOdometerDisplay * 1.60934m
-            : _model!.StartingOdometerDisplay;
+        var odoKm = Units.ConvertDistanceToKm(_model!.StartingOdometerDisplay, _prefs.Unit);
 
         var car = new Car
         {
-            AppUserId = _currentUser!.Id,
+            AppUserId = _prefs.UserId,
             Name = _model!.Name,
             LicensePlate = string.IsNullOrWhiteSpace(_model!.LicensePlate) ? null : _model!.LicensePlate,
             StartingOdometer = odoKm

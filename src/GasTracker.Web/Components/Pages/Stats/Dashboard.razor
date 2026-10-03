@@ -2,7 +2,7 @@
 @layout MainLayout
 @attribute [Authorize]
 @inherits UnitOfWorkComponentBase
-@inject AuthenticationStateProvider AuthState
+@inject CurrentUserService CurrentUser
 @inject FuelCalculatorService Calc
 @inject UnitConversionService Units
 @inject DisplayFormatter Fmt
@@ -69,35 +69,30 @@ else
             </div>
             <div class="col-6">
                 <div class="stat-badge">
-                    <div class="stat-value">@_totalDist @_distUnit</div>
+                    <div class="stat-value">@_totalDist @_prefs.DistUnit</div>
                     <div class="stat-label">total distance</div>
                 </div>
             </div>
         </div>
 
-        <h6>Fuel Efficiency (@Units.EfficiencyLabel(_costDistUnit))</h6>
-        <FuelEfficiencyChart Segments="@_segments" CostDistUnit="@_costDistUnit" />
+        <h6>Fuel Efficiency (@Units.EfficiencyLabel(_prefs.CostDistUnit))</h6>
+        <FuelEfficiencyChart Segments="@_segments" CostDistUnit="@_prefs.CostDistUnit" />
 
-        <h6 class="mt-3">Cost per @Units.CostDistLabel(_costDistUnit)</h6>
-        <CostPerDistanceChart Segments="@_segments" CostDistUnit="@_costDistUnit" CurrencySymbol="@_currencySymbol" />
+        <h6 class="mt-3">Cost per @Units.CostDistLabel(_prefs.CostDistUnit)</h6>
+        <CostPerDistanceChart Segments="@_segments" CostDistUnit="@_prefs.CostDistUnit" CurrencySymbol="@_prefs.CurrencySymbol" />
 
-        <h6 class="mt-3">Fuel price (@_currencySymbol/@(_unit == "miles" ? "gal" : "L"))</h6>
-        <GasPriceChart Logs="@_logs" Unit="@_unit" CurrencySymbol="@_currencySymbol" />
+        <h6 class="mt-3">Fuel price (@_prefs.CurrencySymbol/@_prefs.VolumeUnit)</h6>
+        <GasPriceChart Logs="@_logs" Unit="@_prefs.Unit" CurrencySymbol="@_prefs.CurrencySymbol" />
     }
 }
 
 @code {
+    private UserPreferences _prefs = UserPreferences.Default;
     private List<Car> _cars = [];
     private List<FuelLog> _allLogs = [];
     private List<FuelLog> _logs = [];
     private List<FuelSegment> _segments = [];
     private bool _loading = true;
-    private int _userId;
-    private string _unit = "km";
-    private string _distUnit = "km";
-    private int _statScale = 10;
-    private string _costDistUnit = "10km";
-    private string _currencySymbol = "kr";
     private int _selectedCarId;
     private int _selectedRange = 90;
 
@@ -119,18 +114,11 @@ else
 
     protected override async Task OnInitializedAsync()
     {
-        var auth = await AuthState.GetAuthenticationStateAsync();
-        _userId = int.Parse(auth.User.FindFirst("app_user_id")?.Value ?? "0");
-        var user = await Uow.Users.GetByIdAsync(_userId);
-        _unit = user?.PreferredUnit ?? "km";
-        _distUnit = _unit == "miles" ? "mi" : "km";
-        _statScale = user?.StatScale ?? 10;
-        _costDistUnit = Units.BuildCostDistUnit(_unit, _statScale);
-        _currencySymbol = user?.CurrencySymbol ?? "kr";
-        _efficiencyLabel = Units.EfficiencyLabel(_costDistUnit);
-        _costLabel = $"{_currencySymbol}/{Units.CostDistLabel(_costDistUnit)}";
+        _prefs = await CurrentUser.GetPreferencesAsync(Uow);
+        _efficiencyLabel = Units.EfficiencyLabel(_prefs.CostDistUnit);
+        _costLabel = $"{_prefs.CurrencySymbol}/{Units.CostDistLabel(_prefs.CostDistUnit)}";
 
-        _cars = (await Uow.Cars.GetByUserIdAsync(_userId)).ToList();
+        _cars = (await Uow.Cars.GetByUserIdAsync(_prefs.UserId)).ToList();
         if (_cars.Any())
         {
             _selectedCarId = _cars[0].Id;
@@ -145,7 +133,7 @@ else
 
         // Always load the full history: segments at the start of a date range need the
         // fill-ups before it as their anchor, otherwise the first data point is lost.
-        _allLogs = (await Uow.FuelLogs.GetByCarIdAsync(_selectedCarId, _userId))
+        _allLogs = (await Uow.FuelLogs.GetByCarIdAsync(_selectedCarId, _prefs.UserId))
             .OrderBy(f => f.FilledAt).ToList();
         ApplyRange();
     }
@@ -174,13 +162,13 @@ else
         var totals = Calc.Totals(_segments);
         if (totals is { } t)
         {
-            var eff = Units.LitersPerDistUnit(t.TotalLiters, t.DistanceKm, _costDistUnit)
+            var eff = Units.LitersPerDistUnit(t.TotalLiters, t.DistanceKm, _prefs.CostDistUnit)
                 ?? Calc.MilesPerGallon(Units.KmToMiles(t.DistanceKm), Units.LitersToGallons(t.TotalLiters));
             _avgEfficiency = eff.HasValue ? Fmt.Num(eff.Value, 1) : "—";
 
             var cpk = Calc.CostPerKm(t.TotalCost, t.DistanceKm);
             _avgCostPerDist = cpk.HasValue
-                ? Fmt.Currency(Units.CostPerDistUnit(cpk.Value, _costDistUnit), _currencySymbol)
+                ? Fmt.Currency(Units.CostPerDistUnit(cpk.Value, _prefs.CostDistUnit), _prefs.CurrencySymbol)
                 : "—";
         }
         else
@@ -189,7 +177,7 @@ else
             _avgCostPerDist = "—";
         }
 
-        _totalCost = Fmt.Currency(_logs.Sum(l => l.TotalCost), _currencySymbol);
+        _totalCost = Fmt.Currency(_logs.Sum(l => l.TotalCost), _prefs.CurrencySymbol);
 
         // Distance driven within the range: measured from the last reading before it
         // (or the car's starting odometer) to the last reading inside it.
@@ -198,6 +186,6 @@ else
         var distKmTotal = _logs.Count > 0 && anchorOdo is not null
             ? _logs.Last().OdometerReading - anchorOdo.Value
             : 0;
-        _totalDist = distKmTotal > 0 ? Fmt.Num(Units.ConvertDistance(distKmTotal, _unit), 0) : "—";
+        _totalDist = distKmTotal > 0 ? Fmt.Num(Units.ConvertDistance(distKmTotal, _prefs.Unit), 0) : "—";
     }
 }

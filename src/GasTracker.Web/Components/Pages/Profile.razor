@@ -2,10 +2,9 @@
 @layout MainLayout
 @attribute [Authorize]
 @inherits UnitOfWorkComponentBase
-@inject AuthenticationStateProvider AuthState
+@inject CurrentUserService CurrentUser
 @inject IJSRuntime JS
-@using System.Text.Json
-@using System.Text.Json.Serialization
+@inject DataTransferService Transfer
 
 <PageTitle>Profile — GasTracker</PageTitle>
 
@@ -124,8 +123,7 @@ else
 
     protected override async Task OnInitializedAsync()
     {
-        var auth = await AuthState.GetAuthenticationStateAsync();
-        var userId = int.Parse(auth.User.FindFirst("app_user_id")?.Value ?? "0");
+        var userId = await CurrentUser.GetUserIdAsync();
         _user = await Uow.Users.GetByIdAsync(userId);
         if (_user is not null)
         {
@@ -157,44 +155,23 @@ else
         _saved = true;
     }
 
-    // ── Export ──────────────────────────────────────────────────────────────
+    // ── Export / Import ─────────────────────────────────────────────────────
 
     private async Task ExportAsync()
     {
         if (_user is null) return;
         _exporting = true;
-
-        var cars = await Uow.Cars.GetByUserIdAsync(_user.Id);
-        var carDtos = new List<CarExportDto>();
-
-        foreach (var car in cars)
+        try
         {
-            var logs = await Uow.FuelLogs.GetByCarIdAsync(car.Id, _user.Id);
-            carDtos.Add(new CarExportDto(
-                car.Name,
-                car.LicensePlate,
-                car.StartingOdometer,
-                car.CreatedAt,
-                logs.OrderBy(l => l.FilledAt).Select(l => new FuelLogExportDto(
-                    l.OdometerReading,
-                    l.LitersFilled,
-                    l.TotalCost,
-                    l.FilledAt,
-                    l.IsPartialFillUp,
-                    l.Notes
-                )).ToList()
-            ));
+            var json = await Transfer.ExportJsonAsync(Uow, _user.Id);
+            var filename = $"gastracker-export-{DateTime.UtcNow:yyyy-MM-dd}.json";
+            await JS.InvokeVoidAsync("gtApp.downloadJson", filename, json);
         }
-
-        var export = new ExportDto(DateTime.UtcNow, 1, carDtos);
-        var json = JsonSerializer.Serialize(export, JsonOptions);
-        var filename = $"gastracker-export-{DateTime.UtcNow:yyyy-MM-dd}.json";
-        await JS.InvokeVoidAsync("gtApp.downloadJson", filename, json);
-
-        _exporting = false;
+        finally
+        {
+            _exporting = false;
+        }
     }
-
-    // ── Import ──────────────────────────────────────────────────────────────
 
     private void OnFileSelected(InputFileChangeEventArgs e)
     {
@@ -214,63 +191,15 @@ else
         {
             const int maxBytes = 10 * 1024 * 1024; // 10 MB
             await using var stream = _importFile.OpenReadStream(maxBytes);
-            var export = await JsonSerializer.DeserializeAsync<ExportDto>(stream, JsonOptions);
-
-            if (export is null || export.Version != 1 || export.Cars is null)
-            {
-                _importResult = "Invalid or unsupported file format.";
-                _importError = true;
-                return;
-            }
-
-            // Validate everything before touching the database so a bad file imports nothing
-            var problem = export.Cars.Select(ValidateCar).FirstOrDefault(p => p is not null);
-            if (problem is not null)
-            {
-                _importResult = $"Import aborted: {problem}";
-                _importError = true;
-                return;
-            }
-
-            var cars = export.Cars.Select(carDto => new Car
-            {
-                AppUserId = _user.Id,
-                Name = carDto.Name.Trim(),
-                LicensePlate = carDto.LicensePlate,
-                StartingOdometer = carDto.StartingOdometer,
-                CreatedAt = carDto.CreatedAt,
-                FuelLogs = (carDto.FuelLogs ?? []).Select(logDto => new FuelLog
-                {
-                    OdometerReading = logDto.OdometerReading,
-                    LitersFilled = logDto.LitersFilled,
-                    TotalCost = logDto.TotalCost,
-                    FilledAt = logDto.FilledAt,
-                    IsPartialFillUp = logDto.IsPartialFillUp,
-                    Notes = logDto.Notes
-                }).ToList()
-            }).ToList();
-
-            foreach (var car in cars)
-                await Uow.Cars.AddAsync(car);
-
-            // Single SaveChanges = single transaction: all cars and fill-ups, or nothing
-            await Uow.SaveChangesAsync();
-
-            var carsAdded = cars.Count;
-            var logsAdded = cars.Sum(c => c.FuelLogs.Count);
-
-            _importResult = $"Imported {carsAdded} car{(carsAdded != 1 ? "s" : "")} and {logsAdded} fill-up{(logsAdded != 1 ? "s" : "")}.";
-            _importFile = null;
-        }
-        catch (JsonException)
-        {
-            _importResult = "Could not parse the file. Make sure it is a valid GasTracker export.";
-            _importError = true;
+            var result = await Transfer.ImportAsync(Uow, _user.Id, stream);
+            _importResult = result.Message;
+            _importError = !result.Success;
+            if (result.Success) _importFile = null;
         }
         catch (Exception ex)
         {
-            Uow.DiscardChanges();
-            _importResult = $"Import failed: {ex.Message}";
+            // e.g. IOException when the file exceeds maxBytes; don't let it take down the circuit
+            _importResult = $"Could not read the file: {ex.Message}";
             _importError = true;
         }
         finally
@@ -279,61 +208,12 @@ else
         }
     }
 
-    private static string? ValidateCar(CarExportDto car, int index)
-    {
-        var label = string.IsNullOrWhiteSpace(car.Name) ? $"car #{index + 1}" : $"\"{car.Name}\"";
-        if (string.IsNullOrWhiteSpace(car.Name)) return $"{label} has no name.";
-        if (car.Name.Length > 100) return $"{label} has a name longer than 100 characters.";
-        if (car.StartingOdometer < 0) return $"{label} has a negative starting odometer.";
-
-        foreach (var log in car.FuelLogs ?? [])
-        {
-            var when = log.FilledAt.ToString("yyyy-MM-dd");
-            if (log.OdometerReading <= car.StartingOdometer)
-                return $"{label}: fill-up on {when} has an odometer reading at or below the starting odometer.";
-            if (log.LitersFilled <= 0) return $"{label}: fill-up on {when} has no fuel amount.";
-            if (log.TotalCost < 0) return $"{label}: fill-up on {when} has a negative cost.";
-        }
-        return null;
-    }
-
     private static string FormatBytes(long bytes) => bytes switch
     {
         < 1024 => $"{bytes} B",
         < 1024 * 1024 => $"{bytes / 1024} KB",
         _ => $"{bytes / (1024 * 1024)} MB"
     };
-
-    // ── JSON options ─────────────────────────────────────────────────────────
-
-    private static readonly JsonSerializerOptions JsonOptions = new()
-    {
-        WriteIndented = true,
-        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
-        Converters = { new JsonStringEnumConverter() }
-    };
-
-    // ── DTOs ─────────────────────────────────────────────────────────────────
-
-    private record ExportDto(
-        DateTime ExportedAt,
-        int Version,
-        List<CarExportDto> Cars);
-
-    private record CarExportDto(
-        string Name,
-        string? LicensePlate,
-        decimal StartingOdometer,
-        DateTime CreatedAt,
-        List<FuelLogExportDto> FuelLogs);
-
-    private record FuelLogExportDto(
-        decimal OdometerReading,
-        decimal LitersFilled,
-        decimal TotalCost,
-        DateTime FilledAt,
-        bool IsPartialFillUp,
-        string? Notes);
 
     // ── Profile form model ────────────────────────────────────────────────────
 

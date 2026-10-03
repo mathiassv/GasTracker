@@ -2,7 +2,7 @@
 @layout MainLayout
 @attribute [Authorize]
 @inherits UnitOfWorkComponentBase
-@inject AuthenticationStateProvider AuthState
+@inject CurrentUserService CurrentUser
 @inject NavigationManager Nav
 @inject FuelCalculatorService Calc
 @inject UnitConversionService Units
@@ -68,18 +68,16 @@ else
         {
             var accStats = _logStats.GetValueOrDefault(log.Id);
             var distKm = accStats.HasValue ? accStats.Value.DistanceKm : Calc.DistanceSincePrevious(log, prev);
-            var displayDist = distKm.HasValue ? Units.ConvertDistance(distKm.Value, _unit) : (decimal?)null;
-            var litersDisplay = Units.ConvertVolume(log.LitersFilled, _unit);
-            var volUnit = _unit == "miles" ? "gal" : "L";
-            var distUnit = _unit == "miles" ? "mi" : "km";
+            var displayDist = distKm.HasValue ? Units.ConvertDistance(distKm.Value, _prefs.Unit) : (decimal?)null;
+            var litersDisplay = Units.ConvertVolume(log.LitersFilled, _prefs.Unit);
             var pricePerUnit = (log.LitersFilled > 0 && log.TotalCost > 0)
                 ? log.TotalCost / litersDisplay
                 : (decimal?)null;
-            var effValue = accStats.HasValue ? Units.LitersPerDistUnit(accStats.Value.TotalLiters, accStats.Value.DistanceKm, _costDistUnit) : null;
-            var effMpg = (accStats.HasValue && !Units.IsMetricCostUnit(_costDistUnit))
+            var effValue = accStats.HasValue ? Units.LitersPerDistUnit(accStats.Value.TotalLiters, accStats.Value.DistanceKm, _prefs.CostDistUnit) : null;
+            var effMpg = (accStats.HasValue && !Units.IsMetricCostUnit(_prefs.CostDistUnit))
                 ? Calc.MilesPerGallon(Units.KmToMiles(accStats.Value.DistanceKm), Units.LitersToGallons(accStats.Value.TotalLiters))
                 : null;
-            var effLabel = Units.EfficiencyLabel(_costDistUnit);
+            var effLabel = Units.EfficiencyLabel(_prefs.CostDistUnit);
 
             <div class="log-row">
                 <div class="d-flex justify-content-between align-items-center">
@@ -101,15 +99,15 @@ else
                 </div>
                 <div class="d-flex justify-content-between small text-muted mt-1">
                     <span>
-                        @Fmt.Num(litersDisplay, 2) @volUnit &bull; @Fmt.Currency(log.TotalCost, _currencySymbol)
+                        @Fmt.Num(litersDisplay, 2) @_prefs.VolumeUnit &bull; @Fmt.Currency(log.TotalCost, _prefs.CurrencySymbol)
                         @if (pricePerUnit.HasValue)
                         {
-                            <span class="ms-1">(@Fmt.Currency(pricePerUnit.Value, _currencySymbol)/@volUnit)</span>
+                            <span class="ms-1">(@Fmt.Currency(pricePerUnit.Value, _prefs.CurrencySymbol)/@_prefs.VolumeUnit)</span>
                         }
                     </span>
                     @if (displayDist.HasValue)
                     {
-                        <span>@Fmt.Num(displayDist.Value, 0) @distUnit</span>
+                        <span>@Fmt.Num(displayDist.Value, 0) @_prefs.DistUnit</span>
                     }
                 </div>
                 @if (effValue.HasValue)
@@ -126,8 +124,10 @@ else
 }
 
 <ConfirmDialog @ref="_confirmDialog" Title="Delete car" Message="This will delete the car and all its fill-up history. Are you sure?" />
+<ConfirmDialog @ref="_confirmLogDialog" Title="Delete fill-up" Message="This will permanently delete this fill-up. Are you sure?" />
 
 @code {
+    private UserPreferences _prefs = UserPreferences.Default;
     [Parameter] public int CarId { get; set; }
 
     private Car? _car;
@@ -136,24 +136,20 @@ else
     private Dictionary<int, (decimal TotalLiters, decimal DistanceKm, decimal TotalCost)?> _logStats = [];
     private bool _loading = true;
     private bool _generatingDemo;
-    private int _userId;
-    private string _unit = "km";
-    private int _statScale = 10;
-    private string _costDistUnit = "10km";
-    private string _currencySymbol = "kr";
     private ConfirmDialog _confirmDialog = null!;
+    private ConfirmDialog _confirmLogDialog = null!;
 
     protected override async Task OnInitializedAsync()
     {
-        var auth = await AuthState.GetAuthenticationStateAsync();
-        _userId = int.Parse(auth.User.FindFirst("app_user_id")?.Value ?? "0");
-        var user = await Uow.Users.GetByIdAsync(_userId);
-        _unit = user?.PreferredUnit ?? "km";
-        _statScale = user?.StatScale ?? 10;
-        _costDistUnit = Units.BuildCostDistUnit(_unit, _statScale);
-        _currencySymbol = user?.CurrencySymbol ?? "kr";
+        _prefs = await CurrentUser.GetPreferencesAsync(Uow);
 
-        _car = await Uow.Cars.GetWithFuelLogsAsync(CarId, _userId);
+        await LoadCarAsync();
+        _loading = false;
+    }
+
+    private async Task LoadCarAsync()
+    {
+        _car = await Uow.Cars.GetWithFuelLogsAsync(CarId, _prefs.UserId);
         if (_car is not null)
         {
             _logs = _car.FuelLogs.OrderBy(f => f.FilledAt).ToList();
@@ -161,7 +157,6 @@ else
             _logStats = _logs.Select((log, i) => (log, stats: Calc.AccumulatedStats(_logs, i, _car.StartingOdometer)))
                              .ToDictionary(x => x.log.Id, x => x.stats);
         }
-        _loading = false;
     }
 
     private async Task GenerateDemoDataAsync()
@@ -222,15 +217,7 @@ else
 
         await Uow.SaveChangesAsync();
 
-        // Reload
-        _car = await Uow.Cars.GetWithFuelLogsAsync(CarId, _userId);
-        if (_car is not null)
-        {
-            _logs = _car.FuelLogs.OrderBy(f => f.FilledAt).ToList();
-            _logsWithPrev = _logs.Select((log, i) => (log, i > 0 ? _logs[i - 1] : (FuelLog?)null)).Reverse().ToList();
-            _logStats = _logs.Select((log, i) => (log, stats: Calc.AccumulatedStats(_logs, i, _car.StartingOdometer)))
-                             .ToDictionary(x => x.log.Id, x => x.stats);
-        }
+        await LoadCarAsync();
 
         _generatingDemo = false;
     }
@@ -247,15 +234,9 @@ else
     {
         // IDOR guard: only delete logs that belong to this user's car
         if (!_logs.Any(l => l.Id == logId)) return;
+        if (!await _confirmLogDialog.ShowAsync()) return;
         await Uow.FuelLogs.DeleteAsync(logId);
         await Uow.SaveChangesAsync();
-        _car = await Uow.Cars.GetWithFuelLogsAsync(CarId, _userId);
-        if (_car is not null)
-        {
-            _logs = _car.FuelLogs.OrderBy(f => f.FilledAt).ToList();
-            _logsWithPrev = _logs.Select((log, i) => (log, i > 0 ? _logs[i - 1] : (FuelLog?)null)).Reverse().ToList();
-            _logStats = _logs.Select((log, i) => (log, stats: Calc.AccumulatedStats(_logs, i, _car.StartingOdometer)))
-                             .ToDictionary(x => x.log.Id, x => x.stats);
-        }
+        await LoadCarAsync();
     }
 }
