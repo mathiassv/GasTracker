@@ -15,5 +15,7 @@ public class UnitOfWork(GasTrackerDbContext context) : IUnitOfWork
 
     public Task<int> SaveChangesAsync() => context.SaveChangesAsync();
 
+    public void DiscardChanges() => context.ChangeTracker.Clear();
+
     public void Dispose() => context.Dispose();
 }

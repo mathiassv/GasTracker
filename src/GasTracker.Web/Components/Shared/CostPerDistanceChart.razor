@@ -5,10 +5,9 @@
 <LineChart TItem="decimal" @ref="_chart" />
 
 @code {
-    [Parameter] public List<FuelLog> Logs { get; set; } = [];
+    [Parameter] public IReadOnlyList<FuelSegment> Segments { get; set; } = [];
     [Parameter] public string CostDistUnit { get; set; } = "10km";
     [Parameter] public string CurrencySymbol { get; set; } = "kr";
-    [Parameter] public decimal? StartingOdometer { get; set; }
 
     private LineChart<decimal> _chart = null!;
     private bool _rendered;
@@ -52,18 +51,12 @@
     private List<(string Label, decimal Value)> BuildDataPoints()
     {
         var result = new List<(string, decimal)>();
-        var ordered = Logs.OrderBy(f => f.FilledAt).ToList();
-
-        for (int i = 0; i < ordered.Count; i++)
+        foreach (var s in Segments)
         {
-            if (ordered[i].IsPartialFillUp) continue;
-            var stats = Calc.AccumulatedStats(ordered, i, StartingOdometer);
-            if (stats is null) continue;
-
-            var cpk = Calc.CostPerKm(stats.Value.TotalCost, stats.Value.DistanceKm);
+            var cpk = Calc.CostPerKm(s.TotalCost, s.DistanceKm);
             if (!cpk.HasValue) continue;
             var value = Units.CostPerDistUnit(cpk.Value, CostDistUnit);
-            result.Add((ordered[i].FilledAt.ToLocalTime().ToString("MMM d"), Math.Round(value, 2)));
+            result.Add((s.Log.FilledAt.ToLocalTime().ToString("MMM d"), Math.Round(value, 2)));
         }
         return result;
     }

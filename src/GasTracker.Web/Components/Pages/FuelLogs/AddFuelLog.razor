@@ -1,7 +1,7 @@
 @page "/cars/{CarId:int}/logs/add"
 @layout MainLayout
 @attribute [Authorize]
-@inject IUnitOfWork Uow
+@inherits UnitOfWorkComponentBase
 @inject AuthenticationStateProvider AuthState
 @inject NavigationManager Nav
 @inject FuelCalculatorService Calc
@@ -138,27 +138,39 @@ else
 
         var odoKm = Units.ConvertDistanceToKm(_model!.OdometerDisplay, _unit);
         var newLiters = Units.ConvertVolumeToLiters(_model!.VolumeDisplay, _unit);
+        var filledAtUtc = _model!.FilledAt.ToUniversalTime();
 
-        // Find previous full fill-up as the baseline; fall back to the car's starting odometer
-        var allLogs = _car?.FuelLogs.OrderBy(f => f.FilledAt).ToList() ?? [];
-        var prevFull = allLogs.LastOrDefault(f => !f.IsPartialFillUp);
-        var anchorOdometer = prevFull?.OdometerReading ?? _car?.StartingOdometer;
-        if (anchorOdometer is null) { _preview = null; return; }
-
-        // Include any partial fill-ups logged since the anchor
-        var partialLiters = allLogs
-            .Where(f => f.IsPartialFillUp && f.FilledAt > (prevFull?.FilledAt ?? DateTime.MinValue))
-            .Sum(f => f.LitersFilled);
-
-        var totalLiters = newLiters + partialLiters;
-        var distKm = odoKm - anchorOdometer.Value;
-        if (distKm > 0)
+        if (_car is null || OdometerError(odoKm, filledAtUtc) is not null)
         {
-            var effLabel = Units.EfficiencyLabel(_costDistUnit);
-            var eff = Units.LitersPerDistUnit(totalLiters, distKm, _costDistUnit)
-                ?? Calc.MilesPerGallon(Units.KmToMiles(distKm), Units.LitersToGallons(totalLiters));
-            _preview = eff.HasValue ? $"{Fmt.Num(eff.Value, 2)} {effLabel}" : null;
+            _preview = null;
+            return;
         }
+
+        // Slot the draft into the history by date so backdated entries use the right anchor
+        var draft = new FuelLog { OdometerReading = odoKm, LitersFilled = newLiters, TotalCost = _model!.TotalCost, FilledAt = filledAtUtc };
+        var logs = _car.FuelLogs.Append(draft).OrderBy(f => f.FilledAt).ToList();
+        var stats = Calc.AccumulatedStats(logs, logs.IndexOf(draft), _car.StartingOdometer);
+        if (stats is not { } st)
+        {
+            _preview = null;
+            return;
+        }
+
+        var effLabel = Units.EfficiencyLabel(_costDistUnit);
+        var eff = Units.LitersPerDistUnit(st.TotalLiters, st.DistanceKm, _costDistUnit)
+            ?? Calc.MilesPerGallon(Units.KmToMiles(st.DistanceKm), Units.LitersToGallons(st.TotalLiters));
+        _preview = eff.HasValue ? $"{Fmt.Num(eff.Value, 2)} {effLabel}" : null;
+    }
+
+    /// <summary>Error message if the odometer doesn't fit between the neighbouring fill-ups by date.</summary>
+    private string? OdometerError(decimal odoKm, DateTime filledAtUtc)
+    {
+        var (minKm, maxKm) = Calc.OdometerBounds(_car!.FuelLogs, _car.StartingOdometer, filledAtUtc);
+        if (odoKm <= minKm)
+            return $"Odometer must be greater than {Fmt.Num(Units.ConvertDistance(minKm, _unit), 0)} {_distUnit} (the previous reading).";
+        if (maxKm is { } max && odoKm >= max)
+            return $"Odometer must be less than {Fmt.Num(Units.ConvertDistance(max, _unit), 0)} {_distUnit} (the next fill-up's reading).";
+        return null;
     }
 
     private async Task SubmitAsync()
@@ -169,17 +181,8 @@ else
         var odoKm = Units.ConvertDistanceToKm(_model!.OdometerDisplay, _unit);
         var liters = Units.ConvertVolumeToLiters(_model!.VolumeDisplay, _unit);
 
-        // Validation
-        if (odoKm <= _car.StartingOdometer)
-        {
-            _validationError = $"Odometer must be greater than car's starting odometer ({Fmt.Num(Units.ConvertDistance(_car.StartingOdometer, _unit), 0)} {_distUnit}).";
-            return;
-        }
-        if (_prevLog is not null && odoKm <= _prevLog.OdometerReading)
-        {
-            _validationError = $"Odometer must be greater than the previous reading ({Fmt.Num(Units.ConvertDistance(_prevLog.OdometerReading, _unit), 0)} {_distUnit}).";
-            return;
-        }
+        _validationError = OdometerError(odoKm, _model.FilledAt.ToUniversalTime());
+        if (_validationError is not null) return;
         if (_model.FilledAt > DateTime.Now)
         {
             _validationError = "Fill-up date cannot be in the future.";

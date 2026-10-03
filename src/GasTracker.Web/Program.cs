@@ -8,26 +8,40 @@ using GasTracker.Web.Services;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Authentication.Google;
+using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.RateLimiting;
+using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using System.Security.Claims;
 using System.Threading.RateLimiting;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// EF Core + SQLite
-builder.Services.AddDbContext<GasTrackerDbContext>(opts =>
+// EF Core + SQLite. Blazor components get a short-lived context per page via IUnitOfWorkFactory;
+// the scoped context/IUnitOfWork is only for plain HTTP requests (login callbacks, startup migration).
+builder.Services.AddDbContextFactory<GasTrackerDbContext>(opts =>
     opts.UseSqlite(builder.Configuration.GetConnectionString("DefaultConnection")));
+builder.Services.AddScoped(sp =>
+    sp.GetRequiredService<IDbContextFactory<GasTrackerDbContext>>().CreateDbContext());
 
 // Repository / Unit of Work
 builder.Services.AddScoped<IUnitOfWork, UnitOfWork>();
+builder.Services.AddSingleton<IUnitOfWorkFactory, UnitOfWorkFactory>();
 
 // App services
 builder.Services.AddScoped<UserService>();
 builder.Services.AddScoped<FuelCalculatorService>();
 builder.Services.AddSingleton<UnitConversionService>();
 builder.Services.AddSingleton<DisplayFormatter>();
+
+// Persist Data Protection keys next to the database. Otherwise they live inside the container and
+// every rebuild invalidates all auth cookies, logging everyone out.
+var dbPath = new SqliteConnectionStringBuilder(builder.Configuration.GetConnectionString("DefaultConnection")).DataSource;
+var dataDir = Path.GetDirectoryName(Path.GetFullPath(dbPath)) ?? "data";
+builder.Services.AddDataProtection()
+    .SetApplicationName("GasTracker")
+    .PersistKeysToFileSystem(new DirectoryInfo(Path.Combine(dataDir, "keys")));
 
 // Authentication: Cookies + Google OAuth
 builder.Services.AddAuthentication(options =>
@@ -81,13 +95,17 @@ builder.Services
 // Rate limiting — 300 requests/min per user (or IP if anonymous)
 builder.Services.AddRateLimiter(options =>
 {
-    options.AddFixedWindowLimiter("global", opt =>
-    {
-        opt.PermitLimit = 300;
-        opt.Window = TimeSpan.FromMinutes(1);
-        opt.QueueProcessingOrder = QueueProcessingOrder.OldestFirst;
-        opt.QueueLimit = 0;
-    });
+    options.AddPolicy("global", ctx => RateLimitPartition.GetFixedWindowLimiter(
+        ctx.User.FindFirstValue("app_user_id") is { } userId
+            ? $"user:{userId}"
+            : $"ip:{ctx.Connection.RemoteIpAddress}",
+        _ => new FixedWindowRateLimiterOptions
+        {
+            PermitLimit = 300,
+            Window = TimeSpan.FromMinutes(1),
+            QueueProcessingOrder = QueueProcessingOrder.OldestFirst,
+            QueueLimit = 0
+        }));
     options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
 });
 
@@ -133,12 +151,12 @@ app.Use(async (ctx, next) =>
     await next();
 });
 
-app.UseRateLimiter();
 app.UseStatusCodePagesWithReExecute("/not-found");
 app.UseStaticFiles(); // Hard fallback for framework static assets in published Docker environments
 app.UseRouting();
 app.UseAuthentication();
 app.UseAuthorization();
+app.UseRateLimiter(); // after auth so the limiter can partition by user
 app.UseAntiforgery();
 
 // Auth endpoints — must be real HTTP endpoints, not Blazor components

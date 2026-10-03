@@ -1,7 +1,7 @@
 @page "/cars/{CarId:int}/edit"
 @layout MainLayout
 @attribute [Authorize]
-@inject IUnitOfWork Uow
+@inherits UnitOfWorkComponentBase
 @inject AuthenticationStateProvider AuthState
 @inject NavigationManager Nav
 

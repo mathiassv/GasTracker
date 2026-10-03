@@ -1,11 +1,12 @@
 @page "/cars/{CarId:int}/logs/{LogId:int}/edit"
 @layout MainLayout
 @attribute [Authorize]
-@inject IUnitOfWork Uow
+@inherits UnitOfWorkComponentBase
 @inject AuthenticationStateProvider AuthState
 @inject NavigationManager Nav
 @inject FuelCalculatorService Calc
 @inject UnitConversionService Units
+@inject DisplayFormatter Fmt
 
 <PageTitle>Edit Fill-up — GasTracker</PageTitle>
 
@@ -129,6 +130,18 @@ else
         if (_model.FilledAt > DateTime.Now)
         {
             _validationError = "Fill-up date cannot be in the future.";
+            return;
+        }
+
+        var (minKm, maxKm) = Calc.OdometerBounds(_car.FuelLogs, _car.StartingOdometer, _model.FilledAt.ToUniversalTime(), excludeLogId: _log.Id);
+        if (odoKm <= minKm)
+        {
+            _validationError = $"Odometer must be greater than {Fmt.Num(Units.ConvertDistance(minKm, _unit), 0)} {_distUnit} (the previous reading).";
+            return;
+        }
+        if (maxKm is { } max && odoKm >= max)
+        {
+            _validationError = $"Odometer must be less than {Fmt.Num(Units.ConvertDistance(max, _unit), 0)} {_distUnit} (the next fill-up's reading).";
             return;
         }
 

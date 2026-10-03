@@ -220,4 +220,94 @@ public class FuelCalculatorServiceTests
         Assert.Equal(35m, result.Value.TotalLiters);   // 10 + 25
         Assert.Equal(52m, result.Value.TotalCost);     // 15 + 37
     }
+
+    // ── Segments / Totals ───────────────────────────────────────────────────
+
+    private static readonly DateTime T0 = new(2026, 1, 1, 12, 0, 0, DateTimeKind.Utc);
+
+    private static FuelLog At(int id, int day, decimal odometer, decimal liters, decimal cost, bool partial = false) =>
+        new() { Id = id, OdometerReading = odometer, LitersFilled = liters, TotalCost = cost,
+                FilledAt = T0.AddDays(day), IsPartialFillUp = partial };
+
+    [Fact]
+    public void Segments_UnorderedInput_ReturnsFullFillUpsOldestFirst()
+    {
+        var logs = new[]
+        {
+            At(3, 20, 1700, 25, 37),
+            At(1, 0, 1000, 40, 60),
+            At(2, 10, 1400, 35, 52, partial: true)
+        };
+        var segments = Sut().Segments(logs, startingOdometer: 500);
+
+        Assert.Equal([1, 3], segments.Select(s => s.Log.Id));
+        Assert.Equal(500m, segments[0].DistanceKm);   // 1000 - starting 500
+        Assert.Equal(700m, segments[1].DistanceKm);   // 1700 - 1000
+        Assert.Equal(60m, segments[1].TotalLiters);   // partial 35 + 25
+    }
+
+    [Fact]
+    public void Totals_AreDistanceWeighted_NotAverageOfRatios()
+    {
+        // 100 km @ 10 L (10 L/100km) and 900 km @ 45 L (5 L/100km)
+        var segments = new[]
+        {
+            new FuelSegment(At(1, 0, 0, 0, 0), 10, 100, 20),
+            new FuelSegment(At(2, 1, 0, 0, 0), 45, 900, 90)
+        };
+        var totals = Sut().Totals(segments);
+
+        Assert.NotNull(totals);
+        Assert.Equal(55m, totals.Value.TotalLiters);
+        Assert.Equal(1000m, totals.Value.DistanceKm);
+        Assert.Equal(110m, totals.Value.TotalCost);
+        // 5.5 L/100km overall — a naive mean of ratios would give 7.5
+    }
+
+    [Fact]
+    public void Totals_Empty_ReturnsNull()
+    {
+        Assert.Null(Sut().Totals([]));
+    }
+
+    // ── OdometerBounds ───────────────────────────────────────────────────────
+
+    private static readonly FuelLog[] BoundsLogs =
+    [
+        At(1, 0, 1000, 40, 60),
+        At(2, 10, 1400, 35, 52),
+        At(3, 20, 1700, 25, 37)
+    ];
+
+    [Fact]
+    public void OdometerBounds_NewestEntry_BoundedOnlyBelow()
+    {
+        var (min, max) = Sut().OdometerBounds(BoundsLogs, 500, T0.AddDays(30));
+        Assert.Equal(1700m, min);
+        Assert.Null(max);
+    }
+
+    [Fact]
+    public void OdometerBounds_BackdatedEntry_BoundedByNeighbours()
+    {
+        var (min, max) = Sut().OdometerBounds(BoundsLogs, 500, T0.AddDays(5));
+        Assert.Equal(1000m, min);
+        Assert.Equal(1400m, max);
+    }
+
+    [Fact]
+    public void OdometerBounds_BeforeFirstEntry_UsesStartingOdometer()
+    {
+        var (min, max) = Sut().OdometerBounds(BoundsLogs, 500, T0.AddDays(-1));
+        Assert.Equal(500m, min);
+        Assert.Equal(1000m, max);
+    }
+
+    [Fact]
+    public void OdometerBounds_ExcludesLogBeingEdited()
+    {
+        var (min, max) = Sut().OdometerBounds(BoundsLogs, 500, T0.AddDays(10), excludeLogId: 2);
+        Assert.Equal(1000m, min);
+        Assert.Equal(1700m, max);
+    }
 }

@@ -3,7 +3,7 @@
 @inject AuthenticationStateProvider AuthStateProvider
 @inject IWebHostEnvironment Env
 @inject IJSRuntime JS
-@inject IUnitOfWork Uow
+@inject IUnitOfWorkFactory UowFactory
 
 <div class="gt-app">
     <!-- Top bar -->
@@ -78,7 +78,7 @@
 
 @code {
     private bool _isDark;
-    private AppUser? _user;
+    private int? _userId;
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
@@ -89,11 +89,14 @@
 
         if (int.TryParse(userIdStr, out var userId))
         {
-            _user = await Uow.Users.GetByIdAsync(userId);
-            if (_user is not null)
+            // The layout lives for the whole circuit, so use a short-lived unit of work per operation
+            using var uow = UowFactory.Create();
+            var user = await uow.Users.GetByIdAsync(userId);
+            if (user is not null)
             {
-                await JS.InvokeVoidAsync("gtTheme.apply", _user.Theme);
-                _isDark = _user.Theme == "dark";
+                _userId = user.Id;
+                await JS.InvokeVoidAsync("gtTheme.apply", user.Theme);
+                _isDark = user.Theme == "dark";
                 StateHasChanged();
                 return;
             }
@@ -111,11 +114,16 @@
         var theme = _isDark ? "dark" : "light";
         await JS.InvokeVoidAsync("gtTheme.apply", theme);
 
-        if (_user is not null)
+        if (_userId is not null)
         {
-            _user.Theme = theme;
-            await Uow.Users.UpdateAsync(_user);
-            await Uow.SaveChangesAsync();
+            // Reload rather than reuse a cached entity so changes saved elsewhere (e.g. Profile) aren't overwritten
+            using var uow = UowFactory.Create();
+            var user = await uow.Users.GetByIdAsync(_userId.Value);
+            if (user is not null)
+            {
+                user.Theme = theme;
+                await uow.SaveChangesAsync();
+            }
         }
     }
 

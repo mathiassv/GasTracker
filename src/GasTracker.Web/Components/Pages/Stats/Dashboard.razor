@@ -1,7 +1,7 @@
 @page "/stats"
 @layout MainLayout
 @attribute [Authorize]
-@inject IUnitOfWork Uow
+@inherits UnitOfWorkComponentBase
 @inject AuthenticationStateProvider AuthState
 @inject FuelCalculatorService Calc
 @inject UnitConversionService Units
@@ -76,10 +76,10 @@ else
         </div>
 
         <h6>Fuel Efficiency (@Units.EfficiencyLabel(_costDistUnit))</h6>
-        <FuelEfficiencyChart Logs="@_logs" CostDistUnit="@_costDistUnit" StartingOdometer="@_startingOdometer" />
+        <FuelEfficiencyChart Segments="@_segments" CostDistUnit="@_costDistUnit" />
 
         <h6 class="mt-3">Cost per @Units.CostDistLabel(_costDistUnit)</h6>
-        <CostPerDistanceChart Logs="@_logs" CostDistUnit="@_costDistUnit" CurrencySymbol="@_currencySymbol" StartingOdometer="@_startingOdometer" />
+        <CostPerDistanceChart Segments="@_segments" CostDistUnit="@_costDistUnit" CurrencySymbol="@_currencySymbol" />
 
         <h6 class="mt-3">Fuel price (@_currencySymbol/@(_unit == "miles" ? "gal" : "L"))</h6>
         <GasPriceChart Logs="@_logs" Unit="@_unit" CurrencySymbol="@_currencySymbol" />
@@ -88,7 +88,9 @@ else
 
 @code {
     private List<Car> _cars = [];
+    private List<FuelLog> _allLogs = [];
     private List<FuelLog> _logs = [];
+    private List<FuelSegment> _segments = [];
     private bool _loading = true;
     private int _userId;
     private string _unit = "km";
@@ -105,7 +107,6 @@ else
     private string _costLabel = "kr/10 km";
     private string _totalCost = "—";
     private string _totalDist = "—";
-    private decimal? _startingOdometer;
 
     private record RangeOption(string Label, int Days);
     private readonly List<RangeOption> _ranges =
@@ -142,72 +143,61 @@ else
     {
         if (_selectedCarId == 0) return;
 
-        IEnumerable<FuelLog> raw;
-        if (_selectedRange == 0)
-        {
-            raw = await Uow.FuelLogs.GetByCarIdAsync(_selectedCarId, _userId);
-        }
-        else
-        {
-            var from = DateTime.UtcNow.AddDays(-_selectedRange);
-            raw = await Uow.FuelLogs.GetByCarIdInRangeAsync(_selectedCarId, _userId, from, DateTime.UtcNow);
-        }
-        _logs = raw.OrderBy(f => f.FilledAt).ToList();
-        ComputeSummary();
+        // Always load the full history: segments at the start of a date range need the
+        // fill-ups before it as their anchor, otherwise the first data point is lost.
+        _allLogs = (await Uow.FuelLogs.GetByCarIdAsync(_selectedCarId, _userId))
+            .OrderBy(f => f.FilledAt).ToList();
+        ApplyRange();
     }
 
     private void SetRange(int days)
     {
         _selectedRange = days;
-        _ = LoadLogsAsync();
+        ApplyRange();
     }
 
-    private void ComputeSummary()
+    private void ApplyRange()
     {
-        var efficiencies = new List<decimal>();
-        var costPerDists = new List<decimal>();
+        var startingOdo = _cars.FirstOrDefault(c => c.Id == _selectedCarId)?.StartingOdometer;
+        DateTime? from = _selectedRange == 0 ? null : DateTime.UtcNow.AddDays(-_selectedRange);
 
-        // When showing all logs the car's starting odometer is a valid anchor for the first fill-up.
-        // For date-filtered views the first visible log may not be the car's first, so don't use it.
-        var selectedCar = _cars.FirstOrDefault(c => c.Id == _selectedCarId);
-        decimal? startingOdo = _selectedRange == 0 ? selectedCar?.StartingOdometer : null;
-        _startingOdometer = startingOdo;
+        _logs = _allLogs.Where(f => from is null || f.FilledAt >= from).ToList();
+        _segments = Calc.Segments(_allLogs, startingOdo)
+            .Where(s => from is null || s.Log.FilledAt >= from)
+            .ToList();
+        ComputeSummary(startingOdo, from);
+    }
 
-        for (int i = 0; i < _logs.Count; i++)
+    private void ComputeSummary(decimal? startingOdo, DateTime? from)
+    {
+        // Distance-weighted: total fuel / total distance, not a mean of per-fill-up ratios
+        var totals = Calc.Totals(_segments);
+        if (totals is { } t)
         {
-            if (_logs[i].IsPartialFillUp) continue;
-            var stats = Calc.AccumulatedStats(_logs, i, startingOdo);
-            if (stats is null) continue;
+            var eff = Units.LitersPerDistUnit(t.TotalLiters, t.DistanceKm, _costDistUnit)
+                ?? Calc.MilesPerGallon(Units.KmToMiles(t.DistanceKm), Units.LitersToGallons(t.TotalLiters));
+            _avgEfficiency = eff.HasValue ? Fmt.Num(eff.Value, 1) : "—";
 
-            // Efficiency
-            var eff = Units.LitersPerDistUnit(stats.Value.TotalLiters, stats.Value.DistanceKm, _costDistUnit)
-                ?? Calc.MilesPerGallon(Units.KmToMiles(stats.Value.DistanceKm), Units.LitersToGallons(stats.Value.TotalLiters));
-            if (eff.HasValue) efficiencies.Add(eff.Value);
-
-            // Cost per configured distance unit
-            var cpk = Calc.CostPerKm(stats.Value.TotalCost, stats.Value.DistanceKm);
-            if (cpk.HasValue) costPerDists.Add(Units.CostPerDistUnit(cpk.Value, _costDistUnit));
-        }
-
-        _avgEfficiency = efficiencies.Any()
-            ? Fmt.Num(efficiencies.Average(), 1)
-            : "—";
-        _avgCostPerDist = costPerDists.Any()
-            ? Fmt.Currency(costPerDists.Average(), _currencySymbol)
-            : "—";
-
-        var totalCostVal = _logs.Sum(l => l.TotalCost);
-        _totalCost = Fmt.Currency(totalCostVal, _currencySymbol);
-
-        if (_logs.Count >= 2)
-        {
-            var distKmTotal = _logs.Last().OdometerReading - _logs.First().OdometerReading;
-            var distDisplay = _unit == "miles" ? Units.KmToMiles(distKmTotal) : distKmTotal;
-            _totalDist = Fmt.Num(distDisplay, 0);
+            var cpk = Calc.CostPerKm(t.TotalCost, t.DistanceKm);
+            _avgCostPerDist = cpk.HasValue
+                ? Fmt.Currency(Units.CostPerDistUnit(cpk.Value, _costDistUnit), _currencySymbol)
+                : "—";
         }
         else
         {
-            _totalDist = "—";
+            _avgEfficiency = "—";
+            _avgCostPerDist = "—";
         }
+
+        _totalCost = Fmt.Currency(_logs.Sum(l => l.TotalCost), _currencySymbol);
+
+        // Distance driven within the range: measured from the last reading before it
+        // (or the car's starting odometer) to the last reading inside it.
+        var before = from is null ? null : _allLogs.LastOrDefault(l => l.FilledAt < from);
+        var anchorOdo = before?.OdometerReading ?? startingOdo;
+        var distKmTotal = _logs.Count > 0 && anchorOdo is not null
+            ? _logs.Last().OdometerReading - anchorOdo.Value
+            : 0;
+        _totalDist = distKmTotal > 0 ? Fmt.Num(Units.ConvertDistance(distKmTotal, _unit), 0) : "—";
     }
 }

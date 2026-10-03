@@ -1,7 +1,7 @@
 @page "/cars/add"
 @layout MainLayout
 @attribute [Authorize]
-@inject IUnitOfWork Uow
+@inherits UnitOfWorkComponentBase
 @inject AuthenticationStateProvider AuthState
 @inject NavigationManager Nav
 

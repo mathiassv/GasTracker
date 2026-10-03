@@ -1,7 +1,7 @@
 @page "/profile"
 @layout MainLayout
 @attribute [Authorize]
-@inject IUnitOfWork Uow
+@inherits UnitOfWorkComponentBase
 @inject AuthenticationStateProvider AuthState
 @inject IJSRuntime JS
 @using System.Text.Json
@@ -216,46 +216,48 @@ else
             await using var stream = _importFile.OpenReadStream(maxBytes);
             var export = await JsonSerializer.DeserializeAsync<ExportDto>(stream, JsonOptions);
 
-            if (export is null || export.Version != 1)
+            if (export is null || export.Version != 1 || export.Cars is null)
             {
                 _importResult = "Invalid or unsupported file format.";
                 _importError = true;
                 return;
             }
 
-            int carsAdded = 0, logsAdded = 0;
-
-            foreach (var carDto in export.Cars)
+            // Validate everything before touching the database so a bad file imports nothing
+            var problem = export.Cars.Select(ValidateCar).FirstOrDefault(p => p is not null);
+            if (problem is not null)
             {
-                var car = new Car
-                {
-                    AppUserId = _user.Id,
-                    Name = carDto.Name,
-                    LicensePlate = carDto.LicensePlate,
-                    StartingOdometer = carDto.StartingOdometer,
-                    CreatedAt = carDto.CreatedAt
-                };
-                await Uow.Cars.AddAsync(car);
-                await Uow.SaveChangesAsync(); // flush to get car.Id
-
-                foreach (var logDto in carDto.FuelLogs)
-                {
-                    await Uow.FuelLogs.AddAsync(new FuelLog
-                    {
-                        CarId = car.Id,
-                        OdometerReading = logDto.OdometerReading,
-                        LitersFilled = logDto.LitersFilled,
-                        TotalCost = logDto.TotalCost,
-                        FilledAt = logDto.FilledAt,
-                        IsPartialFillUp = logDto.IsPartialFillUp,
-                        Notes = logDto.Notes
-                    });
-                    logsAdded++;
-                }
-
-                await Uow.SaveChangesAsync();
-                carsAdded++;
+                _importResult = $"Import aborted: {problem}";
+                _importError = true;
+                return;
             }
+
+            var cars = export.Cars.Select(carDto => new Car
+            {
+                AppUserId = _user.Id,
+                Name = carDto.Name.Trim(),
+                LicensePlate = carDto.LicensePlate,
+                StartingOdometer = carDto.StartingOdometer,
+                CreatedAt = carDto.CreatedAt,
+                FuelLogs = (carDto.FuelLogs ?? []).Select(logDto => new FuelLog
+                {
+                    OdometerReading = logDto.OdometerReading,
+                    LitersFilled = logDto.LitersFilled,
+                    TotalCost = logDto.TotalCost,
+                    FilledAt = logDto.FilledAt,
+                    IsPartialFillUp = logDto.IsPartialFillUp,
+                    Notes = logDto.Notes
+                }).ToList()
+            }).ToList();
+
+            foreach (var car in cars)
+                await Uow.Cars.AddAsync(car);
+
+            // Single SaveChanges = single transaction: all cars and fill-ups, or nothing
+            await Uow.SaveChangesAsync();
+
+            var carsAdded = cars.Count;
+            var logsAdded = cars.Sum(c => c.FuelLogs.Count);
 
             _importResult = $"Imported {carsAdded} car{(carsAdded != 1 ? "s" : "")} and {logsAdded} fill-up{(logsAdded != 1 ? "s" : "")}.";
             _importFile = null;
@@ -267,6 +269,7 @@ else
         }
         catch (Exception ex)
         {
+            Uow.DiscardChanges();
             _importResult = $"Import failed: {ex.Message}";
             _importError = true;
         }
@@ -274,6 +277,24 @@ else
         {
             _importing = false;
         }
+    }
+
+    private static string? ValidateCar(CarExportDto car, int index)
+    {
+        var label = string.IsNullOrWhiteSpace(car.Name) ? $"car #{index + 1}" : $"\"{car.Name}\"";
+        if (string.IsNullOrWhiteSpace(car.Name)) return $"{label} has no name.";
+        if (car.Name.Length > 100) return $"{label} has a name longer than 100 characters.";
+        if (car.StartingOdometer < 0) return $"{label} has a negative starting odometer.";
+
+        foreach (var log in car.FuelLogs ?? [])
+        {
+            var when = log.FilledAt.ToString("yyyy-MM-dd");
+            if (log.OdometerReading <= car.StartingOdometer)
+                return $"{label}: fill-up on {when} has an odometer reading at or below the starting odometer.";
+            if (log.LitersFilled <= 0) return $"{label}: fill-up on {when} has no fuel amount.";
+            if (log.TotalCost < 0) return $"{label}: fill-up on {when} has a negative cost.";
+        }
+        return null;
     }
 
     private static string FormatBytes(long bytes) => bytes switch

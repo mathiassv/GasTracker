@@ -6,4 +6,7 @@ public interface IUnitOfWork : IDisposable
     ICarRepository Cars { get; }
     IFuelLogRepository FuelLogs { get; }
     Task<int> SaveChangesAsync();
+
+    /// <summary>Stops tracking all pending changes, e.g. after a failed save.</summary>
+    void DiscardChanges();
 }
